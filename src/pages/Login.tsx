@@ -186,63 +186,72 @@ export default function Login({
             </p>
           </div>
 
-          <div className="loginBrandChips" aria-hidden="true">
-            <span>Meta</span>
-            <span>Shopify</span>
-            <span>Google / GA4</span>
+          <div className="loginBrandTags" aria-hidden="true">
+            <span>META</span>
+            <span>SHOPIFY</span>
+            <span>GOOGLE / GA4</span>
           </div>
         </section>
 
-        <div className="loginCard">
-          <h2 className="loginTitle">Entrar no workspace</h2>
-          <p className="loginSubtitle">
-            Use seu acesso enviado pela Mugô para abrir o painel privado.
-          </p>
+        <section className="loginCard">
+          <div className="loginCardInner">
+            <div className="loginEyebrow">Area autenticada</div>
+            <h2 className="loginTitle">Entrar no workspace</h2>
+            <p className="loginSubtitle">
+              Use seu acesso enviado pela Mugô para abrir o painel privado.
+            </p>
 
-          {visibleError ? <div className="loginError">{visibleError}</div> : null}
-          {info ? <div className="loginInfo">{info}</div> : null}
+            {visibleError ? <div className="loginError">{visibleError}</div> : null}
+            {info ? <div className="loginInfo">{info}</div> : null}
 
-          <form onSubmit={onPasswordLogin}>
-            <label className="loginField">
-              <span className="loginFieldLabel">E-mail</span>
-              <input
-                type="email"
-                placeholder="voce@mugo.com.br"
-                autoComplete="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                disabled={inputDisabled}
-                required
-              />
-            </label>
+            <form onSubmit={onPasswordLogin}>
+              <div>
+                <label className="loginFieldLabel" htmlFor="email">
+                  E-mail
+                </label>
+                <input
+                  id="email"
+                  type="email"
+                  placeholder="voce@mugo.com.br"
+                  autoComplete="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  disabled={inputDisabled}
+                  required
+                />
+              </div>
 
-            <label className="loginField">
-              <span className="loginFieldLabel">Senha</span>
-              <input
-                type="password"
-                placeholder="Sua senha"
-                autoComplete="current-password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                disabled={inputDisabled}
-                required
-              />
-            </label>
+              <div>
+                <label className="loginFieldLabel" htmlFor="password">
+                  Senha
+                </label>
+                <input
+                  id="password"
+                  type="password"
+                  placeholder="Sua senha"
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  disabled={inputDisabled}
+                  required
+                />
+              </div>
 
-            <button type="submit" disabled={inputDisabled}>
-              {authUnavailable
-                ? "Configuracao pendente"
-                : passwordLoading || authChecking
-                  ? "Entrando..."
-                  : "Entrar no painel"}
-            </button>
-          </form>
+              <button type="submit" disabled={inputDisabled}>
+                {authUnavailable
+                  ? "Configuracao pendente"
+                  : passwordLoading || authChecking
+                    ? "Entrando..."
+                    : "Entrar no painel"}
+              </button>
+            </form>
 
-          <div className="loginHint">
-            Usuarios e senhas precisam ser provisionados no Supabase Auth antes do
-            primeiro acesso.
+            <div className="loginHint">
+              Usuarios e senhas precisam ser provisionados no Supabase Auth antes do
+              primeiro acesso.
+            </div>
           </div>
-        </div>
+        </section>
       </div>
     </div>
   );
