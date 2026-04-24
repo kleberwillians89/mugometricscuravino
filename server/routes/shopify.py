@@ -150,11 +150,6 @@ async def shopify_webhook(
         duplicate=duplicated,
         queued=queued,
         duration_ms=_elapsed_ms(started),
-        details={
-            **hmac_debug,
-            "hmac_received": _clean(x_shopify_hmac_sha256) or "",
-            "hmac_calculated": computed_hmac,
-        },
     )
     return {
         "ok": True,

@@ -203,9 +203,8 @@ def get_shopify_client_id() -> str:
 
 def _shopify_secret_debug(secret: str) -> Dict[str, Any]:
     return {
+        "secret_configured": bool(secret),
         "secret_len": len(secret),
-        "secret_prefix": secret[:6] if secret else "",
-        "secret_suffix": secret[-6:] if secret else "",
     }
 
 
