@@ -1,0 +1,385 @@
+import { useCallback, useEffect, useState } from "react";
+import type { Session } from "@supabase/supabase-js";
+import { supabase } from "./app/supabase";
+import { listRooveConnections } from "./app/api";
+import {
+  getCurrentAppRoute,
+  navigateToAppRoute,
+  type AppRoute,
+} from "./app/routes";
+import { ROOVE_APP_NAME } from "./app/roove";
+import Login from "./pages/Login";
+import Onboarding from "./pages/Onboarding";
+import Dashboard from "./pages/Dashboard";
+import Shopify from "./pages/Shopify";
+import GoogleAnalytics from "./pages/GoogleAnalytics";
+import DashboardErrorBoundary from "./components/dashboard/DashboardErrorBoundary";
+
+type AppView = "loading" | "login" | "setup" | "dashboard";
+
+const AUTH_BOOTSTRAP_RETRY_MS = 350;
+const AUTH_BOOTSTRAP_RETRY_ATTEMPTS = 3;
+const AUTH_DEBUG = import.meta.env.DEV && import.meta.env.VITE_AUTH_DEBUG === "true";
+
+function authDebug(event: string, payload?: Record<string, unknown>) {
+  if (!AUTH_DEBUG) return;
+  if (payload) {
+    console.info(`[auth-debug] ${event}`, payload);
+    return;
+  }
+  console.info(`[auth-debug] ${event}`);
+}
+
+function hasSupabaseCallbackSignalInUrl(): boolean {
+  try {
+    const search = new URLSearchParams(window.location.search);
+    if (
+      search.has("code") ||
+      search.has("access_token") ||
+      search.has("error") ||
+      search.has("error_description")
+    ) {
+      return true;
+    }
+
+    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    return Boolean(
+      hash.get("access_token") ||
+      hash.get("refresh_token") ||
+      hash.get("error") ||
+      hash.get("error_description")
+    );
+  } catch {
+    return false;
+  }
+}
+
+function hasSetupSignalInUrl(): boolean {
+  try {
+    const search = new URLSearchParams(window.location.search);
+    return (
+      search.get("onboarding") === "1" ||
+      search.has("meta_oauth") ||
+      search.has("handoff")
+    );
+  } catch {
+    return false;
+  }
+}
+
+function clearSetupUrlParams() {
+  try {
+    const url = new URL(window.location.href);
+    const params = url.searchParams;
+    params.delete("meta_oauth");
+    params.delete("handoff");
+    params.delete("error");
+    params.delete("view");
+    params.delete("onboarding");
+    params.delete("client_id");
+    const next = `${url.pathname}${params.toString() ? `?${params.toString()}` : ""}`;
+    window.history.replaceState({}, document.title, next);
+  } catch {
+    // no-op
+  }
+}
+
+function toErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === "string" && error.trim()) return error;
+  return "Erro ao carregar a configuracao da Roove.";
+}
+
+function AppLoading() {
+  return (
+    <div
+      style={{
+        minHeight: "100vh",
+        display: "grid",
+        placeItems: "center",
+        background:
+          "radial-gradient(900px 360px at 12% -10%, rgba(215,219,106,.24), transparent 62%), #f2f0ec",
+      }}
+    >
+      <span className="pill">Carregando {ROOVE_APP_NAME}...</span>
+    </div>
+  );
+}
+
+export default function App() {
+  const [session, setSession] = useState<Session | null>(null);
+  const [view, setView] = useState<AppView>("loading");
+  const [route, setRoute] = useState<AppRoute>(() => getCurrentAppRoute());
+  const [bootError, setBootError] = useState<string | null>(null);
+  const [authInitializing, setAuthInitializing] = useState(true);
+
+  const isOrganicConnection = useCallback(
+    (connection: { platform?: string | null; connection_type?: string | null; status?: string | null }) => {
+      const platform = String(connection.platform || "").toLowerCase();
+      const connectionType = String(connection.connection_type || "").toLowerCase();
+      const status = String(connection.status || "").toLowerCase();
+      return status === "active" && (platform === "instagram" || connectionType === "organic");
+    },
+    []
+  );
+
+  const resolveAuthenticatedView = useCallback(
+    async (candidateSession?: Session | null, requestedRoute: AppRoute = route) => {
+      const activeSession = candidateSession ?? session;
+      if (!activeSession) {
+        authDebug("route.decision", {
+          target: "login",
+          reason: "missing_session",
+        });
+        setView("login");
+        return;
+      }
+
+      setView("loading");
+      setBootError(null);
+
+      if (requestedRoute === "shopify" || requestedRoute === "google") {
+        authDebug("route.decision", {
+          target: requestedRoute,
+          reason: `authenticated_${requestedRoute}_report`,
+        });
+        setView("dashboard");
+        return;
+      }
+
+      try {
+        const setupRequestedFromUrl = hasSetupSignalInUrl();
+        const connectionsRes = await listRooveConnections();
+        const connections = connectionsRes.connections || [];
+        const hasActiveOrganicConnection = connections.some(isOrganicConnection);
+
+        if (setupRequestedFromUrl) {
+          authDebug("route.decision", {
+            target: "setup",
+            reason: "setup_signal_in_url",
+            connectionsCount: connections.length,
+          });
+          setView("setup");
+          return;
+        }
+
+        if (!hasActiveOrganicConnection) {
+          authDebug("route.decision", {
+            target: "setup",
+            reason: "missing_active_roove_connection",
+            connectionsCount: connections.length,
+          });
+          setView("setup");
+          return;
+        }
+
+        authDebug("route.decision", {
+          target: "dashboard",
+          reason: "authenticated_with_active_roove_connection",
+          connectionsCount: connections.length,
+        });
+        setView("dashboard");
+      } catch (error: unknown) {
+        const message = toErrorMessage(error);
+        authDebug("route.decision", {
+          target: "setup",
+          reason: "resolve_authenticated_view_error",
+          error: message,
+        });
+        setBootError(message);
+        setView("setup");
+      }
+    },
+    [isOrganicConnection, route, session]
+  );
+
+  useEffect(() => {
+    let mounted = true;
+
+    const bootstrapAuth = async () => {
+      const callbackSignal = hasSupabaseCallbackSignalInUrl();
+      authDebug("bootstrap.start", { callbackSignalInUrl: callbackSignal });
+
+      try {
+        const first = await supabase.auth.getSession();
+        if (first.error) {
+          authDebug("getSession.error", { message: first.error.message });
+        }
+
+        let nextSession = first.data.session ?? null;
+        authDebug("getSession.result", {
+          hasSession: !!nextSession,
+          userId: nextSession?.user?.id ?? null,
+        });
+
+        if (!nextSession && callbackSignal) {
+          for (let attempt = 1; attempt <= AUTH_BOOTSTRAP_RETRY_ATTEMPTS; attempt += 1) {
+            await new Promise<void>((resolve) => {
+              window.setTimeout(resolve, AUTH_BOOTSTRAP_RETRY_MS);
+            });
+
+            const retry = await supabase.auth.getSession();
+            if (retry.error) {
+              authDebug("getSession.retry.error", {
+                attempt,
+                message: retry.error.message,
+              });
+            }
+            nextSession = retry.data.session ?? null;
+            authDebug("getSession.retry.result", {
+              attempt,
+              hasSession: !!nextSession,
+              userId: nextSession?.user?.id ?? null,
+            });
+            if (nextSession) break;
+          }
+        }
+
+        if (!mounted) return;
+        setSession(nextSession);
+      } catch (error: unknown) {
+        if (!mounted) return;
+        authDebug("getSession.exception", { message: toErrorMessage(error) });
+        setSession(null);
+      } finally {
+        if (mounted) {
+          setAuthInitializing(false);
+        }
+      }
+    };
+
+    void bootstrapAuth();
+
+    const { data: sub } = supabase.auth.onAuthStateChange((event, next) => {
+      if (!mounted) return;
+      const nextSession = next ?? null;
+      authDebug("onAuthStateChange", {
+        event,
+        hasSession: !!nextSession,
+        userId: nextSession?.user?.id ?? null,
+      });
+      setSession(nextSession);
+      setAuthInitializing(false);
+      if (!nextSession) {
+        clearSetupUrlParams();
+        setBootError(null);
+        setView("login");
+      }
+    });
+
+    return () => {
+      mounted = false;
+      sub.subscription.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      setRoute(getCurrentAppRoute());
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (authInitializing) {
+      setView("loading");
+      return;
+    }
+    if (!session) {
+      setView("login");
+      return;
+    }
+    void resolveAuthenticatedView(session, route);
+  }, [authInitializing, resolveAuthenticatedView, route, session]);
+
+  const openRoute = useCallback(
+    (nextRoute: AppRoute) => {
+      navigateToAppRoute(nextRoute);
+      setRoute(nextRoute);
+    },
+    []
+  );
+
+  async function handleLogout() {
+    try {
+      await supabase.auth.signOut();
+    } finally {
+      authDebug("logout", { cleared: true });
+      clearSetupUrlParams();
+      setSession(null);
+      setBootError(null);
+      setAuthInitializing(false);
+      setView("login");
+    }
+  }
+
+  const handleSetupCompleted = useCallback(async () => {
+    clearSetupUrlParams();
+    await resolveAuthenticatedView(session, route);
+  }, [resolveAuthenticatedView, route, session]);
+
+  const handlePasswordLoginSuccess = useCallback(
+    async (nextSession: Session | null) => {
+      setSession(nextSession);
+      await resolveAuthenticatedView(nextSession ?? session, route);
+    },
+    [resolveAuthenticatedView, route, session]
+  );
+
+  if (view === "loading") {
+    return <AppLoading />;
+  }
+
+  if (view === "login" || !session) {
+    return (
+      <Login
+        initialError={bootError}
+        authChecking={authInitializing}
+        onPasswordLoginSuccess={handlePasswordLoginSuccess}
+      />
+    );
+  }
+
+  if (view === "setup") {
+    return (
+      <Onboarding
+        isAuthenticated={!!session}
+        initialError={bootError}
+        onLogout={handleLogout}
+        onCompleted={handleSetupCompleted}
+      />
+    );
+  }
+
+  return (
+    <DashboardErrorBoundary>
+      {route === "shopify" ? (
+        <Shopify
+          onLogout={handleLogout}
+          onOpenDashboard={() => openRoute("dashboard")}
+          onOpenGoogleReport={() => openRoute("google")}
+        />
+      ) : route === "google" ? (
+        <GoogleAnalytics
+          isAuthenticated={!!session}
+          onLogout={handleLogout}
+          onOpenDashboard={() => openRoute("dashboard")}
+          onOpenShopifyReport={() => openRoute("shopify")}
+        />
+      ) : (
+        <Dashboard
+          onLogout={handleLogout}
+          isAuthenticated={!!session}
+          bootstrapError={bootError}
+          onOpenSetup={() => setView("setup")}
+          onOpenGoogleAnalytics={() => openRoute("google")}
+          onOpenShopifyReport={() => openRoute("shopify")}
+        />
+      )}
+    </DashboardErrorBoundary>
+  );
+}

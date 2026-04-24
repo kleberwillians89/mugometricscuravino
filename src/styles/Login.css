@@ -1,0 +1,117 @@
+.loginPage {
+  min-height: 100vh;
+  min-height: 100dvh;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  background:
+    radial-gradient(880px 360px at 8% -10%, rgba(199, 152, 48, 0.4), transparent 62%),
+    radial-gradient(900px 380px at 100% -12%, rgba(12, 65, 96, 0.46), transparent 58%),
+    linear-gradient(145deg, #062235, #0c4160 48%, #114c72);
+  font-family: "Manrope", "Segoe UI", sans-serif;
+}
+
+.loginCard {
+  width: min(460px, 92vw);
+  padding: 34px;
+  background: rgba(255, 255, 255, 0.96);
+  border-radius: 18px;
+  border: 1px solid rgba(12, 65, 96, 0.18);
+  box-shadow: 0 28px 70px rgba(4, 16, 25, 0.34);
+  text-align: center;
+}
+
+.loginLogo {
+  width: 168px;
+  margin-bottom: 18px;
+}
+
+.loginEyebrow {
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(12, 65, 96, 0.58);
+}
+
+.loginCard h1 {
+  margin: 0;
+  font-size: 28px;
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+  color: #0c4160;
+}
+
+.loginCard p {
+  color: rgba(10, 13, 16, 0.64);
+  margin: 8px 0 22px;
+}
+
+.loginError {
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(178, 34, 47, 0.28);
+  background: rgba(178, 34, 47, 0.08);
+  color: #6f1a24;
+  text-align: left;
+  font-size: 14px;
+}
+
+.loginInfo {
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(15, 114, 70, 0.26);
+  background: rgba(15, 114, 70, 0.1);
+  color: #0e5d3a;
+  text-align: left;
+  font-size: 14px;
+}
+
+.loginCard form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.loginCard input {
+  height: 44px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(12, 65, 96, 0.18);
+  background: rgba(255, 255, 255, 0.94);
+}
+
+.loginCard input:focus {
+  outline: none;
+  border-color: rgba(12, 65, 96, 0.42);
+  box-shadow: 0 0 0 3px rgba(12, 65, 96, 0.12);
+}
+
+.loginCard button[type="submit"] {
+  height: 44px;
+  border-radius: 10px;
+  border: 1px solid rgba(12, 65, 96, 0.2);
+  background: linear-gradient(135deg, #c79830, #b8872a);
+  color: #fff;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.loginCard button:disabled {
+  opacity: 0.62;
+  cursor: default;
+}
+
+.loginHint {
+  margin-top: 18px;
+  text-align: center;
+  color: rgba(10, 13, 16, 0.52);
+  font-size: 12px;
+  line-height: 1.4;
+}

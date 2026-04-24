@@ -1,0 +1,428 @@
+/* src/styles/dashboard.css */
+
+.cardMetricHighlight{
+  border-color: rgba(199,152,48,.42) !important;
+  box-shadow: 0 20px 42px rgba(199,152,48,.16), 0 10px 24px rgba(12,65,96,.08) !important;
+}
+
+.dashHeader{
+  width: 100%;
+  max-width: 980px;
+  border: 1px solid rgba(12, 65, 96, 0.14);
+  background: linear-gradient(180deg, rgba(255,255,255,.98), rgba(246,250,252,.96));
+  border-radius: 16px;
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  box-shadow: 0 14px 30px rgba(10,13,16,.09);
+  position: sticky;
+  top: 4px;
+  z-index: 16;
+  backdrop-filter: blur(12px);
+}
+
+.dashHeaderLeft{
+  min-width: 260px;
+  display: grid;
+  gap: 6px;
+}
+
+.dashHeaderClientLabel,
+.dashHeaderPeriodLabel,
+.dashHeaderConnectionLabel{
+  font-size: 11px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  font-weight: 900;
+  color: rgba(10,13,16,.55);
+}
+
+.dashHeaderClientSelect{
+  min-width: 260px;
+  font-weight: 900;
+}
+
+.dashHeaderConnectionRow{
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dashHeaderStatusRow{
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  row-gap: 6px;
+}
+
+.dashHeaderStatusChip{
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(12, 65, 96, 0.12);
+  background: rgba(255,255,255,.72);
+  color: rgba(10,13,16,.62);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.dashHeaderStatusChip.isRefreshing{
+  border-color: rgba(199,152,48,.22);
+  background: rgba(199,152,48,.12);
+  color: #7a5b1d;
+}
+
+.dashHeaderConnectionSelect{
+  min-width: 240px;
+}
+
+.dashHeaderRight{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.dashHeaderPeriod{
+  display: grid;
+  gap: 4px;
+}
+
+.dashHeader .select{
+  background: #fff;
+  box-shadow: 0 8px 18px rgba(10,13,16,.06);
+}
+
+.dashHeader .btn{
+  min-width: 136px;
+  min-height: 40px;
+}
+
+.btnLogout{
+  background: linear-gradient(135deg, var(--blue), var(--blue2));
+  color: #fff;
+  border: 1px solid rgba(255,255,255,.14);
+  padding: 10px 16px;
+  border-radius: 12px;
+  font-weight: 800;
+  letter-spacing: .2px;
+  cursor: pointer;
+  transition: transform .15s ease, opacity .15s ease, box-shadow .15s ease;
+  box-shadow: 0 10px 30px rgba(0,0,0,.18);
+}
+
+.btnLogout:hover{
+  transform: translateY(-1px);
+  opacity: .94;
+}
+
+.btnLogout:active{
+  transform: translateY(0px);
+  opacity: .9;
+}
+
+.cardsGrid .card{
+  overflow: hidden;
+}
+
+.cardHead{
+  flex-wrap: wrap;
+}
+
+.cardHead > div:first-child{
+  min-width: 0;
+  flex: 1 1 220px;
+}
+
+.cardHead .pillGrowth{
+  flex: 0 0 auto;
+  align-self: flex-start;
+  white-space: nowrap;
+}
+
+.metricHeaderActions{
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.metricGranularityToggle{
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.metricGranularityBtn{
+  min-width: 0;
+  padding: 7px 10px;
+  border-radius: 10px;
+}
+
+.metricGranularityBtn.isActive{
+  background: rgba(12, 65, 96, .12);
+  border-color: rgba(12, 65, 96, .28);
+  color: #0c4160;
+}
+
+.dashboardSectionMeta{
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.dashboardTimestamp{
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(10,13,16,.56);
+}
+
+@media (max-width: 900px){
+  .dashHeader{
+    width: 100%;
+    gap: 10px;
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .dashHeaderLeft{
+    width: 100%;
+    min-width: 0;
+  }
+  .dashHeaderClientSelect,
+  .dashHeaderConnectionSelect{
+    min-width: 0;
+    width: 100%;
+  }
+  .dashHeaderConnectionRow{
+    display: grid;
+    gap: 4px;
+  }
+  .dashHeaderStatusRow{
+    justify-content: flex-start;
+  }
+  .dashHeaderRight{
+    width: 100%;
+    justify-content: flex-start;
+  }
+  .dashHeader .btn,
+  .dashHeader .btnGhost,
+  .dashHeader .btnLogout{
+    flex: 1 1 calc(50% - 6px);
+    justify-content: center;
+    text-align: center;
+  }
+  .dashHeaderPeriod{
+    flex: 1 1 100%;
+  }
+  .metricHeaderActions{
+    width: 100%;
+    justify-content: flex-start;
+  }
+  .dashboardSectionMeta{
+    width: 100%;
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 620px){
+  .dashHeader .btn,
+  .dashHeader .btnGhost,
+  .dashHeader .btnLogout,
+  .dashHeader .select{
+    flex: 1 1 100%;
+    width: 100%;
+  }
+}
+
+.ga4SectionCard{
+  display: grid;
+  gap: 18px;
+}
+
+.ga4SectionBody{
+  display: grid;
+  gap: 18px;
+}
+
+.ga4SummaryGrid{
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.ga4SummaryCard{
+  min-height: 108px;
+  border: 1px solid rgba(12, 65, 96, 0.12);
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(255,255,255,.98), rgba(247,250,252,.92));
+  padding: 14px 16px;
+  display: grid;
+  align-content: space-between;
+  gap: 10px;
+  box-shadow: 0 14px 28px rgba(10,13,16,.06);
+}
+
+.ga4SummaryCard strong{
+  font-size: 1.42rem;
+  line-height: 1.05;
+  color: #0c4160;
+}
+
+.ga4SummaryHint{
+  font-size: 12px;
+  color: rgba(10,13,16,.58);
+}
+
+.ga4JourneyCard{
+  border: 1px solid rgba(12, 65, 96, 0.12);
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(255,255,255,.98), rgba(244,248,251,.94));
+  padding: 16px;
+  display: grid;
+  gap: 14px;
+}
+
+.ga4JourneyHead{
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.ga4JourneyGrid{
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.ga4JourneyStep{
+  min-height: 118px;
+  border-radius: 14px;
+  border: 1px solid rgba(12, 65, 96, 0.1);
+  background: rgba(255,255,255,.88);
+  padding: 14px;
+  display: grid;
+  align-content: start;
+  gap: 8px;
+}
+
+.ga4JourneyStep strong{
+  font-size: 1.32rem;
+  line-height: 1.05;
+}
+
+.ga4JourneyHint{
+  font-size: 12px;
+  color: rgba(10,13,16,.56);
+}
+
+.ga4JourneyRate{
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  min-height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(12, 65, 96, 0.1);
+  color: #0c4160;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.ga4GroupsGrid{
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.ga4GroupCard{
+  border: 1px solid rgba(12, 65, 96, 0.12);
+  border-radius: 16px;
+  background: rgba(255,255,255,.94);
+  padding: 14px;
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.ga4GroupHead{
+  display: grid;
+  gap: 10px;
+}
+
+.ga4GroupSummary{
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ga4GroupSummary span{
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(12, 65, 96, 0.12);
+  background: rgba(12, 65, 96, 0.06);
+  color: rgba(10,13,16,.68);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ga4TableWrap{
+  max-height: 280px;
+}
+
+.ga4GroupTable tbody tr:hover{
+  background: rgba(12, 65, 96, 0.04);
+}
+
+.ga4InlineNotice{
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(199,152,48,.18);
+  background: rgba(199,152,48,.08);
+}
+
+.skeletonTall{
+  min-height: 260px;
+  border-radius: 16px;
+}
+
+@media (max-width: 1200px){
+  .ga4SummaryGrid{
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ga4JourneyGrid{
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .ga4GroupsGrid{
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px){
+  .ga4SummaryGrid,
+  .ga4JourneyGrid{
+    grid-template-columns: 1fr;
+  }
+
+  .ga4SummaryCard,
+  .ga4JourneyStep{
+    min-height: 0;
+  }
+}
