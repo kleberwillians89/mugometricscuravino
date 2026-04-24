@@ -76,10 +76,7 @@
   object-fit: contain;
   background: transparent;
   border-radius: 18px;
-}cd ~/Desktop/mugo_metrics
-git add src/styles/Login.css
-git commit -m "round Mugô login logo container"
-git push origin main
+}
 
 .loginBrandCopy {
   max-width: 620px;
@@ -111,6 +108,7 @@ git push origin main
   line-height: 1.55;
   color: #4b4b4b;
 }
+
 .loginBrandTag {
   display: inline-flex;
   align-items: center;
@@ -149,6 +147,7 @@ git push origin main
   color: #c44a3d;
   background: transparent;
 }
+
 /* LADO DIREITO */
 .loginCard {
   display: flex;
