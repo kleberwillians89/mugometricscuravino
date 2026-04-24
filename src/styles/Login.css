@@ -56,28 +56,30 @@
 .loginBrandTopLogo {
   display: inline-flex;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: center;
   width: fit-content;
   max-width: 100%;
-  margin-bottom: 28px;
-  padding: 0;
+  margin-bottom: 42px;
+  padding: 10px;
   background: transparent;
-  border: none;
-  border-radius: 0;
+  border: 2px solid #c44a3d;
+  border-radius: 28px;
   box-shadow: none;
-  overflow: visible;
+  overflow: hidden;
 }
 
 .loginTopLogo {
   display: block;
-  width: 430px;
+  width: 420px;
   max-width: 100%;
   height: auto;
   object-fit: contain;
   background: transparent;
-  border-radius: 0;
-  box-shadow: none;
-}
+  border-radius: 18px;
+}cd ~/Desktop/mugo_metrics
+git add src/styles/Login.css
+git commit -m "round Mugô login logo container"
+git push origin main
 
 .loginBrandCopy {
   max-width: 620px;
@@ -109,6 +111,21 @@
   line-height: 1.55;
   color: #4b4b4b;
 }
+.loginBrandTag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 18px;
+  border: 1px solid rgba(196, 74, 61, 0.28);
+  border-radius: 999px;
+  font-size: 14px;
+  line-height: 1;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #c44a3d;
+  background: transparent;
+}
 
 .loginBrandTags {
   display: flex;
@@ -117,7 +134,7 @@
   margin-top: 28px;
 }
 
-.loginBrandTag {
+.loginBrandTags span {
   display: inline-flex;
   align-items: center;
   justify-content: center;
