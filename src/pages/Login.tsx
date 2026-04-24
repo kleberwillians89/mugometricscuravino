@@ -3,7 +3,7 @@ import type { Session } from "@supabase/supabase-js";
 import { getSupabaseBootstrapError, supabase } from "../app/supabase";
 import "../styles/Login.css";
 
-import logoVideo from "../assets/MUGÔ_LOGO.mp4";
+import logoVideo from "../assets/Mugo-3dlogo-spinning.mp4";
 
 const AUTH_DEBUG = import.meta.env.DEV && import.meta.env.VITE_AUTH_DEBUG === "true";
 
