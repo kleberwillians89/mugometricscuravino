@@ -7,6 +7,10 @@
   --mugo-border: rgba(180, 67, 54, 0.14);
   --mugo-text: #1f1f1f;
   --mugo-muted: #6f6a63;
+  --mugo-blue-950: #07131f;
+  --mugo-blue-900: #0c253a;
+  --mugo-blue-800: #10334e;
+  --mugo-blue-glow: rgba(96, 156, 212, 0.18);
 }
 
 .loginPage {
@@ -15,21 +19,26 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 32px 20px;
-  background: linear-gradient(180deg, #e2bb57 0%, #c79830 100%);
+  padding: clamp(18px, 3.4vh, 32px) 20px;
+  overflow-y: auto;
+  background:
+    radial-gradient(820px 380px at 8% 0%, var(--mugo-blue-glow), transparent 58%),
+    radial-gradient(760px 360px at 100% 100%, rgba(199, 152, 48, 0.12), transparent 52%),
+    linear-gradient(155deg, var(--mugo-blue-950) 0%, var(--mugo-blue-900) 46%, var(--mugo-blue-800) 100%);
   font-family: "Manrope", "Segoe UI", sans-serif;
 }
 
 .loginShell {
   width: min(1240px, 100%);
-  min-height: 720px;
+  min-height: min(720px, calc(100dvh - 64px));
   display: grid;
   grid-template-columns: 1.1fr 0.9fr;
   border-radius: 34px;
   overflow: hidden;
-  background: rgba(255, 255, 255, 0.6);
-  box-shadow: 0 28px 70px rgba(69, 45, 8, 0.2);
-  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.56);
+  box-shadow: 0 28px 70px rgba(5, 14, 24, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(14px);
 }
 
 /* LADO ESQUERDO */
@@ -40,8 +49,8 @@
   justify-content: center;
   padding: 56px 48px;
   background:
-    radial-gradient(700px 320px at 0% 0%, rgba(199, 152, 48, 0.12), transparent 50%),
-    linear-gradient(180deg, #ffffff 0%, #fbf7f2 52%, #f4eee6 100%);
+    radial-gradient(700px 320px at 0% 0%, rgba(96, 156, 212, 0.1), transparent 50%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92) 0%, rgba(251, 247, 242, 0.92) 52%, rgba(244, 238, 230, 0.92) 100%);
   color: var(--mugo-text);
   overflow: hidden;
 }
@@ -52,11 +61,12 @@
   justify-content: center;
   width: min(100%, 610px);
   margin-bottom: 42px;
-  padding: 18px;
-  background: #ffffff;
-  border: 1px solid rgba(180, 67, 54, 0.08);
+  padding: 12px;
+  background: linear-gradient(180deg, rgba(11, 26, 40, 0.08), rgba(255, 255, 255, 0.26));
+  border: 1px solid rgba(12, 65, 96, 0.12);
   border-radius: 28px;
-  box-shadow: 0 16px 45px rgba(80, 45, 31, 0.08);
+  box-shadow: 0 18px 44px rgba(13, 34, 52, 0.1);
+  backdrop-filter: blur(8px);
 }
 
 .loginTopLogo {
@@ -66,7 +76,7 @@
   height: auto;
   aspect-ratio: 16 / 9;
   object-fit: contain;
-  background: #ffffff;
+  background: transparent;
   border-radius: 20px;
 }
 
@@ -254,8 +264,13 @@
 
 /* RESPONSIVO */
 @media (max-width: 1080px) {
+  .loginPage {
+    align-items: flex-start;
+  }
+
   .loginShell {
     grid-template-columns: 1fr;
+    min-height: 0;
   }
 
   .loginBrandPanel,
@@ -279,6 +294,7 @@
 
   .loginShell {
     border-radius: 24px;
+    min-height: 0;
   }
 
   .loginBrandPanel,
@@ -313,5 +329,31 @@
   .loginCard button {
     height: 58px;
     border-radius: 18px;
+  }
+}
+
+@media (max-height: 860px) {
+  .loginPage {
+    align-items: flex-start;
+    padding-top: 18px;
+    padding-bottom: 18px;
+  }
+
+  .loginShell {
+    min-height: 0;
+  }
+
+  .loginBrandPanel,
+  .loginCard {
+    padding-top: 34px;
+    padding-bottom: 34px;
+  }
+
+  .loginBrandTopLogo {
+    margin-bottom: 28px;
+  }
+
+  .loginBrandTags {
+    margin-top: 28px;
   }
 }
