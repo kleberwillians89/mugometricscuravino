@@ -3,7 +3,7 @@ import type { Session } from "@supabase/supabase-js";
 import { getSupabaseBootstrapError, supabase } from "../app/supabase";
 import "../styles/Login.css";
 
-import logo from "../assets/mugo-logo.svg";
+import logo from "../assets/MUGÔ_LOGO.png";
 
 const AUTH_DEBUG = import.meta.env.DEV && import.meta.env.VITE_AUTH_DEBUG === "true";
 const BRAND_NAME = "Mugô";
@@ -162,8 +162,8 @@ export default function Login({
       <div className="loginShell">
         <section className="loginBrandPanel" aria-label="Apresentacao da marca Mugô">
           <div className="loginBrandPill">{BRAND_NAME}</div>
-          <div className="loginLogoStage">
-            <img src={logo} className="loginLogo" alt={BRAND_NAME} />
+          <div className="loginBrandTopLogo">
+            <img src={logo} className="loginTopLogo" alt={BRAND_NAME} />
           </div>
           <div className="loginBrandCopy">
             <div className="loginBrandEyebrow">{PANEL_NAME}</div>
@@ -181,10 +181,9 @@ export default function Login({
         </section>
 
         <div className="loginCard">
-          <div className="loginEyebrow">Area autenticada</div>
           <h2 className="loginTitle">Entrar no workspace</h2>
           <p className="loginSubtitle">
-            Use seu acesso provisionado no Supabase Auth para abrir o painel
+            Use seu acesso enviado pela Mugô para abrir o painel
             privado da Mugô.
           </p>
 
