@@ -324,3 +324,25 @@
     width: 180px;
   }
 }
+
+.loginBrandTopLogo {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: 100%;
+  margin-bottom: 32px;
+  padding: 18px;
+  background: #ffffff;
+  border-radius: 22px;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.16);
+}
+
+.loginTopLogo {
+  width: 320px;
+  max-width: 100%;
+  height: auto;
+  display: block;
+  object-fit: contain;
+  background: #ffffff;
+  border-radius: 14px;
+}
