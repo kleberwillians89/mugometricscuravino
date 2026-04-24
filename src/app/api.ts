@@ -27,7 +27,7 @@ import type {
   PaidDashboardResponse,
 } from "./types";
 import type { Period } from "./PeriodContext";
-import { supabase } from "./supabase";
+import { getSupabaseBootstrapError, supabase } from "./supabase";
 import {
   getRooveClientConfigurationWarning,
   getRooveClientId,
@@ -154,6 +154,12 @@ function pathWithPeriodAndExtras(
 }
 
 async function getAccessToken(): Promise<string | null> {
+  if (!supabase) {
+    throw new Error(
+      getSupabaseBootstrapError() ||
+        "Supabase Auth nao esta configurado no frontend."
+    );
+  }
   const { data } = await supabase.auth.getSession();
   return data.session?.access_token ?? null;
 }

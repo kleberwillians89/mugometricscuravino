@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
-import { supabase } from "./app/supabase";
+import { getSupabaseBootstrapError, supabase } from "./app/supabase";
 import { listRooveConnections } from "./app/api";
 import {
   getCurrentAppRoute,
@@ -107,10 +107,11 @@ function AppLoading() {
 }
 
 export default function App() {
+  const authBootstrapError = getSupabaseBootstrapError();
   const [session, setSession] = useState<Session | null>(null);
   const [view, setView] = useState<AppView>("loading");
   const [route, setRoute] = useState<AppRoute>(() => getCurrentAppRoute());
-  const [bootError, setBootError] = useState<string | null>(null);
+  const [bootError, setBootError] = useState<string | null>(authBootstrapError);
   const [authInitializing, setAuthInitializing] = useState(true);
 
   const isOrganicConnection = useCallback(
@@ -195,13 +196,26 @@ export default function App() {
 
   useEffect(() => {
     let mounted = true;
+    const authClient = supabase;
 
     const bootstrapAuth = async () => {
       const callbackSignal = hasSupabaseCallbackSignalInUrl();
       authDebug("bootstrap.start", { callbackSignalInUrl: callbackSignal });
 
+      if (!authClient || authBootstrapError) {
+        authDebug("bootstrap.config_error", {
+          message: authBootstrapError || "supabase_client_unavailable",
+        });
+        if (!mounted) return;
+        setSession(null);
+        setBootError(authBootstrapError || "Supabase Auth nao esta configurado no frontend.");
+        setView("login");
+        setAuthInitializing(false);
+        return;
+      }
+
       try {
-        const first = await supabase.auth.getSession();
+        const first = await authClient.auth.getSession();
         if (first.error) {
           authDebug("getSession.error", { message: first.error.message });
         }
@@ -218,7 +232,7 @@ export default function App() {
               window.setTimeout(resolve, AUTH_BOOTSTRAP_RETRY_MS);
             });
 
-            const retry = await supabase.auth.getSession();
+            const retry = await authClient.auth.getSession();
             if (retry.error) {
               authDebug("getSession.retry.error", {
                 attempt,
@@ -250,7 +264,13 @@ export default function App() {
 
     void bootstrapAuth();
 
-    const { data: sub } = supabase.auth.onAuthStateChange((event, next) => {
+    if (!authClient || authBootstrapError) {
+      return () => {
+        mounted = false;
+      };
+    }
+
+    const { data: sub } = authClient.auth.onAuthStateChange((event, next) => {
       if (!mounted) return;
       const nextSession = next ?? null;
       authDebug("onAuthStateChange", {
@@ -305,6 +325,15 @@ export default function App() {
   );
 
   async function handleLogout() {
+    if (!supabase) {
+      authDebug("logout", { cleared: true, mode: "no_supabase_client" });
+      clearSetupUrlParams();
+      setSession(null);
+      setBootError(authBootstrapError);
+      setAuthInitializing(false);
+      setView("login");
+      return;
+    }
     try {
       await supabase.auth.signOut();
     } finally {

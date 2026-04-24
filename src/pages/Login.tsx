@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import type { Session } from "@supabase/supabase-js";
-import { supabase } from "../app/supabase";
+import { getSupabaseBootstrapError, supabase } from "../app/supabase";
 import {
   ROOVE_APP_NAME,
   ROOVE_CLIENT_NAME,
@@ -61,6 +61,7 @@ export default function Login({
   authChecking = false,
   onPasswordLoginSuccess,
 }: Props) {
+  const authConfigError = getSupabaseBootstrapError();
   const [passwordLoading, setPasswordLoading] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -76,6 +77,11 @@ export default function Login({
   async function onPasswordLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (passwordLoading || authChecking) return;
+
+    if (!supabase || authConfigError) {
+      setErr(authConfigError || "Supabase Auth nao esta configurado no frontend.");
+      return;
+    }
 
     const cleanEmail = email.trim();
     const cleanPassword = password.trim();
@@ -149,6 +155,10 @@ export default function Login({
     }
   }
 
+  const authUnavailable = Boolean(authConfigError);
+  const inputDisabled = passwordLoading || authChecking || authUnavailable;
+  const visibleError = err || authConfigError;
+
   return (
     <div className="loginPage">
       <div className="loginCard">
@@ -158,7 +168,7 @@ export default function Login({
         <h1>{ROOVE_APP_NAME}</h1>
         <p>Acesse o painel exclusivo da Roove com seu usuario criado no Supabase Auth.</p>
 
-        {err ? <div className="loginError">{err}</div> : null}
+        {visibleError ? <div className="loginError">{visibleError}</div> : null}
         {info ? <div className="loginInfo">{info}</div> : null}
 
         <form onSubmit={onPasswordLogin}>
@@ -168,7 +178,7 @@ export default function Login({
             autoComplete="email"
             value={email}
             onChange={(event) => setEmail(event.target.value)}
-            disabled={passwordLoading || authChecking}
+            disabled={inputDisabled}
             required
           />
           <input
@@ -177,11 +187,15 @@ export default function Login({
             autoComplete="current-password"
             value={password}
             onChange={(event) => setPassword(event.target.value)}
-            disabled={passwordLoading || authChecking}
+            disabled={inputDisabled}
             required
           />
-          <button type="submit" disabled={passwordLoading || authChecking}>
-            {passwordLoading || authChecking ? "Entrando..." : "Entrar no painel"}
+          <button type="submit" disabled={inputDisabled}>
+            {authUnavailable
+              ? "Configuração pendente"
+              : passwordLoading || authChecking
+                ? "Entrando..."
+                : "Entrar no painel"}
           </button>
         </form>
 
