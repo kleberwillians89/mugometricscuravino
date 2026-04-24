@@ -71,13 +71,12 @@
 
 .loginTopLogo {
   display: block;
-  width: 100%;
-  max-width: 520px;
+  width: 420px;      /* aumenta ou diminui aqui */
+  max-width: 100%;
   height: auto;
-  aspect-ratio: 16 / 9;
+  border-radius: 20px;
   object-fit: contain;
   background: transparent;
-  border-radius: 20px;
 }
 
 .loginBrandCopy {
