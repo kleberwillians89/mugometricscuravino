@@ -54,7 +54,7 @@ default_allow_origin = ",".join(
     [
         "http://localhost:5173",
         "http://localhost:5174",
-        "https://roovedados.onrender.com",
+        "https://mugometricscuravino.onrender.com",
     ]
 )
 raw = (os.getenv("ALLOW_ORIGIN") or default_allow_origin).strip()
