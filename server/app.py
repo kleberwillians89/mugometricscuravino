@@ -59,11 +59,12 @@ default_allow_origin = ",".join(
 )
 raw = (os.getenv("ALLOW_ORIGIN") or default_allow_origin).strip()
 allow_origins = [o.strip() for o in raw.split(",") if o.strip()]
+allow_all_origins = "*" in allow_origins
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allow_origins,
-    allow_credentials=True,
+    allow_credentials=not allow_all_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
