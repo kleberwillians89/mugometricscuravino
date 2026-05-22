@@ -23,6 +23,7 @@ from api_support import (
     _validated_connection_id,
 )
 from routes.google import router as google_router
+from routes.fbits import router as fbits_router
 from routes.meta_legacy import router as meta_legacy_router
 from routes.shopify import router as shopify_router
 
@@ -108,6 +109,7 @@ def health():
 
 app.include_router(shopify_router)
 app.include_router(google_router)
+app.include_router(fbits_router)
 app.include_router(meta_legacy_router)
 
 

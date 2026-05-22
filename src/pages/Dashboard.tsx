@@ -9,7 +9,6 @@ import CommentsPanel from "../components/CommentsPanel";
 import NotesPanel from "../components/NotesPanel";
 import { MonthCompareLines, MonthMixChart } from "../components/Charts";
 import DashboardHeader from "../components/dashboard/DashboardHeader";
-import KpiCards from "../components/dashboard/KpiCards";
 import StoriesPanel from "../components/dashboard/StoriesPanel";
 import AiSummaryCard from "../components/dashboard/AiSummaryCard";
 import MetaBlockBoundary from "../components/dashboard/MetaBlockBoundary";
@@ -32,10 +31,8 @@ import {
   listNotes,
   createNote,
   updateNote,
-  listRooveConnections,
-  startRooveMetaOAuth,
+  listCuravinoConnections,
   syncAds,
-  syncGa4,
 } from "../app/api";
 
 import { buildMonthAgg, getMonth, monthsList, pct } from "../app/aggregate";
@@ -48,6 +45,7 @@ import type {
   MetaConnection,
   NoteItem,
   PaidDashboardResponse,
+  RefreshAllResponse,
 } from "../app/types";
 import {
   CHART_COLORS,
@@ -61,17 +59,17 @@ import {
   setActiveConnectionId as setStoredActiveConnectionId,
 } from "../app/connectionState";
 import { usePeriod } from "../app/PeriodContext";
+import { formatSelectedPeriodLabel, getSelectedPeriodRange } from "../app/periodRange";
 import {
-  getRooveClientConfigurationWarning,
-  ROOVE_APP_NAME,
-  ROOVE_CLIENT_ID,
-  ROOVE_CLIENT_NAME,
-} from "../app/roove";
+  ACTIVE_CLIENT_ID,
+  getCuravinoClientConfigurationWarning,
+} from "../app/curavino";
 
 import "../styles/dashboard.css";
 
 const DASH_DEBUG =
   import.meta.env.DEV && import.meta.env.VITE_DASH_DEBUG === "true";
+const SHOW_PRESENTATION_EXTRAS = false;
 function dashLog(step: string, data?: Record<string, unknown>) {
   if (!DASH_DEBUG) return;
   try {
@@ -182,15 +180,6 @@ const METRIC_LABELS: Record<MetaMetricKey, string> = {
 };
 
 const META_METRIC_BY_KPI: Record<KpiKey, MetaMetricKey> = {
-  reach: "reach",
-  profile_views: "profile_views",
-  website_clicks: "website_clicks",
-  accounts_engaged: "accounts_engaged",
-  total_interactions: "total_interactions",
-  followers: "followers",
-};
-
-const KPI_BY_META_METRIC: Partial<Record<MetaMetricKey, KpiKey>> = {
   reach: "reach",
   profile_views: "profile_views",
   website_clicks: "website_clicks",
@@ -1003,29 +992,12 @@ function pickDefaultPaidConnectionId(connections: MetaConnection[]): string | nu
   return paidConnections[0]?.id || null;
 }
 
-function connectionLabel(connection: MetaConnection): string {
-  const username = String(connection.username || "").trim();
-  if (username) return username.startsWith("@") ? username : `@${username}`;
-
-  const adAccountName = String(connection.ad_account_name || "").trim();
-  if (adAccountName) return adAccountName;
-
-  const igUserId = String(connection.ig_user_id || "").trim();
-  if (igUserId) return `Instagram ${igUserId.slice(-6)}`;
-
-  const adAccountId = String(connection.ad_account_id || "").trim();
-  if (adAccountId) return `Conta Ads ${adAccountId.replace(/^act_/, "").slice(-6)}`;
-
-  return "Conexão ativa";
-}
-
 type DashboardProps = {
   onLogout?: () => Promise<void> | void;
   isAuthenticated?: boolean;
   bootstrapError?: string | null;
   onOpenSetup?: () => void;
   onOpenGoogleAnalytics?: () => void;
-  onOpenShopifyReport?: () => void;
 };
 
 export default function Dashboard({
@@ -1034,10 +1006,8 @@ export default function Dashboard({
   bootstrapError,
   onOpenSetup,
   onOpenGoogleAnalytics,
-  onOpenShopifyReport,
 }: DashboardProps) {
   const [syncing, setSyncing] = useState(false);
-  const [oauthConnecting, setOauthConnecting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   const {
@@ -1047,14 +1017,17 @@ export default function Dashboard({
     setMonthPeriod,
     periodDays,
   } = usePeriod();
-  const period = ensureDashboardPeriod(periodState);
+  const period = getSelectedPeriodRange(ensureDashboardPeriod(periodState));
   const rangeDays = periodDays;
-  const [activeKpi, setActiveKpi] = useState<KpiKey>("reach");
   const [activeMetric, setActiveMetric] = useState<MetaMetricKey>(metricFromKpi("reach"));
   const [chartGranularity, setChartGranularity] = useState<ChartGranularity>("monthly");
+  const [paidCampaignFilter, setPaidCampaignFilter] = useState("");
+  const [paidAdsetFilter, setPaidAdsetFilter] = useState("");
+  const [paidAdFilter, setPaidAdFilter] = useState("");
+  const [paidPlatformFilter, setPaidPlatformFilter] = useState("");
   const [monthA, setMonthA] = useState<string>("");
   const [monthB, setMonthB] = useState<string>("");
-  const activeClientId = ROOVE_CLIENT_ID;
+  const activeClientId = ACTIVE_CLIENT_ID;
   const connectionsCacheKey = useMemo(
     () =>
       buildDashboardCacheKey("meta-connections", {
@@ -1075,10 +1048,6 @@ export default function Dashboard({
   const [enablePaidStage, setEnablePaidStage] = useState(false);
   const [enableMonthlyStage, setEnableMonthlyStage] = useState(false);
   const [enableExtrasStage, setEnableExtrasStage] = useState(false);
-  const organicConnections = useMemo(
-    () => arrayOrEmpty<MetaConnection>(connections).filter(isOrganicConnection),
-    [connections]
-  );
   const organicConnectionId = String(activeConnectionId || "").trim() || null;
   const monthsCacheKey = useMemo(
     () =>
@@ -1123,6 +1092,7 @@ export default function Dashboard({
   const dash = (summaryData.dash as DashboardResponse | null) || null;
   const mediaData = summaryData.media;
   const comments = summaryData.comments;
+  const commentsTotal = safe(summaryData.commentsTotal);
   const topWords = summaryData.topWords;
   const stories = summaryData.stories;
   const storiesAvailableFromApi = summaryData.storiesAvailable;
@@ -1145,8 +1115,16 @@ export default function Dashboard({
   
   const mediaHasMore = false;
   const commentsHasMore = false;
-  const storiesAvailable = storiesAvailableFromApi || stories.length > 0;
-  const storiesMessage = storiesMessageFromApi || (stories.length ? "" : "Sem stories no período.");
+  const hasSummaryOrganicData =
+    mediaData.length > 0 ||
+    comments.length > 0 ||
+    commentsTotal > 0 ||
+    stories.length > 0 ||
+    safe(dash?.period_totals?.followers_current) > 0;
+  const storiesAvailable = storiesAvailableFromApi || stories.length > 0 || hasSummaryOrganicData;
+  const storiesMessage =
+    storiesMessageFromApi ||
+    (stories.length || hasSummaryOrganicData ? "" : "Stories ainda não sincronizados.");
   const { aiLoading, aiErr, aiReport, runAi } = useDashboardAiSummary({
     period,
     resetKey: activeClientId,
@@ -1157,7 +1135,6 @@ export default function Dashboard({
     refreshingMonthly,
     monthlyError,
     monthlyUpdatedAt,
-    reloadMonthly,
   } = useDashboardMonthlyContent({
     isAuthenticated,
     activeClientId,
@@ -1191,16 +1168,6 @@ export default function Dashboard({
       return;
     }
   }, [onLogout]);
-
-  const onSelectConnection = useCallback(
-    (connectionId: string) => {
-      if (!activeClientId) return;
-      const nextConnectionId = String(connectionId || "").trim() || null;
-      setActiveConnection(nextConnectionId);
-      setStoredActiveConnectionId(nextConnectionId);
-    },
-    [activeClientId]
-  );
 
   const onSelectPeriodPreset = useCallback(
     (preset: "7d" | "30d" | "month") => {
@@ -1236,22 +1203,6 @@ export default function Dashboard({
       setEnableExtrasStage(true);
     }
   }, [enableMonthlyStage, organicConnectionId, monthlyRows.length, monthlyError, monthlyUpdatedAt]);
-
-  const onConnectMetaOAuth = useCallback(async () => {
-    setErr(null);
-    setOauthConnecting(true);
-    try {
-      const response = await startRooveMetaOAuth();
-      const authorizationUrl = String(response.authorization_url || "").trim();
-      if (!authorizationUrl) {
-        throw new Error("A integração não retornou URL de autorização.");
-      }
-      window.location.assign(authorizationUrl);
-    } catch (error: unknown) {
-      setErr(errorMessage(error, "Erro ao iniciar a integração da Roove"));
-      setOauthConnecting(false);
-    }
-  }, []);
 
   const loadNotesData = useCallback(async (options?: { force?: boolean }) => {
     if (!isAuthenticated || !activeClientId) {
@@ -1411,6 +1362,7 @@ export default function Dashboard({
       setNotesError(null);
       return;
     }
+    if (!SHOW_PRESENTATION_EXTRAS) return;
     if (!enableExtrasStage) return;
     void loadNotesData();
   }, [enableExtrasStage, isAuthenticated, activeClientId, organicConnectionId, loadNotesData]);
@@ -1446,7 +1398,7 @@ export default function Dashboard({
       };
     }
 
-    listRooveConnections()
+    listCuravinoConnections()
       .then((response) => {
         if (!alive) return;
         const nextConnections = arrayOrEmpty<MetaConnection>(response.connections);
@@ -1482,72 +1434,66 @@ export default function Dashboard({
 
   async function onRefresh() {
     if (!activeClientId) {
-      setErr("Client_id da Roove não configurado para atualização.");
-      return;
-    }
-    if (!organicConnectionId) {
-      setErr("Nenhuma conexão orgânica ativa para sincronizar.");
+      setErr("Client_id da Curavino não configurado para atualização.");
       return;
     }
     setErr(null);
     setSyncing(true);
-    try {
-      const res = await refreshAll(200, {
-        connectionId: organicConnectionId,
-        start: period.start,
-        end: period.end,
-      });
-      dashLog("onRefresh:refreshAll", {
-        ok: !!res.ok,
-        media: (res.media || []).length,
-        comments_saved: res.comments_saved || 0,
-        warnings: res.warnings || [],
-        block_status: res.block_status || {},
-      });
-      if (!res.ok) {
-        const warning = Array.isArray(res.warnings) ? String(res.warnings[0] || "").trim() : "";
-        setErr(warning || "Atualização finalizada com alertas. Revise a conexão ativa.");
-      }
-      if (paidConnectionId) {
-        try {
-          const paidSync = await syncAds(
-            {
-              start: period.start,
-              end: period.end,
-            },
-            {
-              connectionId: paidConnectionId,
-            }
-          );
-          dashLog("onRefresh:syncAds", paidSync as Record<string, unknown>);
-        } catch (paidSyncError: unknown) {
-          dashLog("onRefresh:syncAds:error", {
-            message: errorMessage(paidSyncError, "failed"),
-          });
-        }
-      } else {
-        dashLog("onRefresh:syncAds:skip", {
-          reason: "missing_paid_connection",
-        });
-      }
-      try {
-        const ga4Sync = await syncGa4({
+    const syncTasks: Promise<unknown>[] = [];
+    if (organicConnectionId) {
+      syncTasks.push(
+        refreshAll(200, {
+          connectionId: organicConnectionId,
           start: period.start,
           end: period.end,
-          days: rangeDays,
+        })
+      );
+    } else {
+      dashLog("onRefresh:refreshAll:skip", {
+        reason: "missing_organic_connection",
+      });
+    }
+    if (paidConnectionId) {
+      syncTasks.push(
+        syncAds(
+          {
+            start: period.start,
+            end: period.end,
+          },
+          {
+            connectionId: paidConnectionId,
+            clientId: activeClientId,
+          }
+        )
+      );
+    }
+    try {
+      const syncResults = await Promise.allSettled(syncTasks);
+      const organicSync = syncResults[0];
+      if (organicSync?.status === "fulfilled" && organicConnectionId) {
+        const res = organicSync.value as RefreshAllResponse;
+        dashLog("onRefresh:refreshAll", {
+          ok: !!res.ok,
+          media: (res.media || []).length,
+          comments_saved: res.comments_saved || 0,
+          warnings: res.warnings || [],
+          block_status: res.block_status || {},
         });
-        dashLog("onRefresh:syncGa4", ga4Sync as Record<string, unknown>);
-      } catch (ga4SyncError: unknown) {
-        dashLog("onRefresh:syncGa4:error", {
-          message: errorMessage(ga4SyncError, "failed"),
+        if (!res.ok) {
+          const warning = Array.isArray(res.warnings) ? String(res.warnings[0] || "").trim() : "";
+          setErr(warning || "Atualização orgânica finalizada com alertas.");
+        }
+      }
+      const rejectedSync = syncResults.find((result) => result.status === "rejected");
+      if (rejectedSync?.status === "rejected") {
+        dashLog("onRefresh:sync:error", {
+          message: errorMessage(rejectedSync.reason, "failed"),
         });
+        setErr("Falha parcial ao atualizar. Mantendo a última leitura disponível.");
       }
       await Promise.allSettled([
         reloadSummary({ force: true, includeSecondary: true }),
-        reloadMonthly({ force: true }),
         reloadPaid({ force: true }),
-        loadAvailableMonths({ force: true }),
-        loadNotesData({ force: true }),
       ]);
     } catch (error: unknown) {
       setErr(errorMessage(error, "Erro ao atualizar dados"));
@@ -1558,42 +1504,27 @@ export default function Dashboard({
 
   const hasDash = !!dash?.ok;
 
-  const configWarning = getRooveClientConfigurationWarning();
-  const themeClass = "theme-roove";
-  const profileName = ROOVE_CLIENT_NAME;
+  const configWarning = getCuravinoClientConfigurationWarning();
+  const themeClass = "theme-curavino";
 
   const periodTotals = dash?.period_totals;
   const daily = dash?.daily || [];
-  const lastDay = daily.length ? daily[daily.length - 1] : null;
   const currentFollowers =
-    daily.length && typeof daily[daily.length - 1]?.followers === "number"
-      ? safe(daily[daily.length - 1].followers)
-      : 0;
-  const lastFollowersDelta =
-    daily.length >= 2
-      ? safe(daily[daily.length - 1].followers) -
-        safe(daily[daily.length - 2].followers)
-      : 0;
-
+    typeof periodTotals?.followers_current === "number"
+      ? safe(periodTotals.followers_current)
+      : daily.length && typeof daily[daily.length - 1]?.followers === "number"
+        ? safe(daily[daily.length - 1].followers)
+        : 0;
   const kpisFromDash: Record<string, number> = {
     reach: safe(periodTotals?.reach),
     profile_views: safe(periodTotals?.profile_views),
     website_clicks: safe(periodTotals?.website_clicks),
     accounts_engaged: safe(periodTotals?.accounts_engaged),
-    total_interactions: safe(periodTotals?.total_interactions),
+    total_interactions: safe(periodTotals?.total_interactions) || safe(periodTotals?.accounts_engaged),
     impressions: safe(periodTotals?.impressions),
     followers: currentFollowers,
   };
 
-  const kpisToday: Record<string, number> = {
-    reach: safe(lastDay?.reach),
-    profile_views: safe(lastDay?.profile_views),
-    website_clicks: safe(lastDay?.website_clicks),
-    accounts_engaged: safe(lastDay?.accounts_engaged),
-    total_interactions: safe(lastDay?.total_interactions),
-    impressions: safe(lastDay?.impressions),
-    followers: lastFollowersDelta,
-  };
   const paidTotals = paidData?.totals;
   const hasPaidConnection = Boolean(paidConnectionId);
   const organicConnection = useMemo(
@@ -1611,9 +1542,6 @@ export default function Dashboard({
     [connections, paidConnectionId]
   );
   const paidConnectionStatus = String(paidConnection?.status || "").toLowerCase();
-  const paidConnectionError = String(paidConnection?.last_error || "").trim();
-  const paidConnectionErrorShort =
-    paidConnectionError.length > 180 ? `${paidConnectionError.slice(0, 180)}...` : paidConnectionError;
   const organicLastUpdatedLabel =
     formatUpdatedAtLabel(sectionUpdatedAt.dash) ||
     formatUpdatedAtLabel(organicConnection?.last_synced_at || organicConnection?.last_sync_at);
@@ -1639,7 +1567,6 @@ export default function Dashboard({
     safe(paidTotals?.spend) > 0 ||
     safe(paidTotals?.impressions) > 0 ||
     safe(paidTotals?.clicks) > 0;
-  const paidMessage = String(paidData?.message || "").trim();
   const paidStatusLabel = !hasPaidConnection
     ? "Sem conexão de Ads"
     : paidConnectionStatus === "error" || paidConnectionStatus === "needs_reauth"
@@ -1652,28 +1579,69 @@ export default function Dashboard({
         ? "Ads com dados"
         : paidHasRows
           ? "Ads sem gasto"
-          : "Aguardando sync";
+          : "Aguardando atualização";
   const paidEmptyMessage = !hasPaidConnection
-    ? "Sem conexão de Ads ativa para a Roove."
+    ? "Sem conexão de Ads ativa para a Curavino."
     : paidConnectionStatus === "error" || paidConnectionStatus === "needs_reauth"
-      ? paidConnectionErrorShort || "Conexão de Ads precisa reconectar para sincronização."
+      ? "A conexão de Ads precisa de atenção antes da próxima sincronização."
       : loadingPaid
         ? "Carregando dados de Ads..."
         : refreshingPaid
           ? "Atualizando dados de Ads em background..."
         : paidError
-          ? `Falha ao carregar Ads: ${paidError}`
+          ? "A leitura de Meta Ads não ficou disponível agora."
         : paidHasRows
           ? "Conexão ativa, sem gasto no período selecionado."
-          : paidMessage || "Conexão ativa, aguardando primeira sincronização de Ads.";
+          : "Meta Ads conectado, sem campanhas no período.";
   const paidTopCreatives = useMemo(
-    () => (Array.isArray(paidData?.top_creatives) ? paidData.top_creatives : []),
-    [paidData]
+    () => {
+      const campaignNeedle = paidCampaignFilter.trim().toLowerCase();
+      const adsetNeedle = paidAdsetFilter.trim().toLowerCase();
+      const adNeedle = paidAdFilter.trim().toLowerCase();
+      const platformNeedle = paidPlatformFilter.trim().toLowerCase();
+      return (Array.isArray(paidData?.top_creatives) ? paidData.top_creatives : []).filter((creative) => (
+        (!campaignNeedle || String(creative.campaign_name || "").toLowerCase().includes(campaignNeedle)) &&
+        (!adsetNeedle || `${creative.adset_name || ""} ${creative.adset_id || ""}`.toLowerCase().includes(adsetNeedle)) &&
+        (!adNeedle || `${creative.ad_name || ""} ${creative.ad_id || ""}`.toLowerCase().includes(adNeedle)) &&
+        (!platformNeedle || String(creative.source_platform || "").toLowerCase().includes(platformNeedle))
+      ));
+    },
+    [paidAdFilter, paidAdsetFilter, paidCampaignFilter, paidData, paidPlatformFilter]
   );
   const paidTopBoostedPosts = useMemo(
-    () => (Array.isArray(paidData?.top_boosted_posts) ? paidData.top_boosted_posts : []),
+    () => {
+      const campaignNeedle = paidCampaignFilter.trim().toLowerCase();
+      const adsetNeedle = paidAdsetFilter.trim().toLowerCase();
+      const adNeedle = paidAdFilter.trim().toLowerCase();
+      const platformNeedle = paidPlatformFilter.trim().toLowerCase();
+      return (Array.isArray(paidData?.top_boosted_posts) ? paidData.top_boosted_posts : []).filter((creative) => (
+        (!campaignNeedle || String(creative.campaign_name || "").toLowerCase().includes(campaignNeedle)) &&
+        (!adsetNeedle || `${creative.adset_name || ""} ${creative.adset_id || ""}`.toLowerCase().includes(adsetNeedle)) &&
+        (!adNeedle || `${creative.ad_name || ""} ${creative.ad_id || ""}`.toLowerCase().includes(adNeedle)) &&
+        (!platformNeedle || String(creative.source_platform || "").toLowerCase().includes(platformNeedle))
+      ));
+    },
+    [paidAdFilter, paidAdsetFilter, paidCampaignFilter, paidData, paidPlatformFilter]
+  );
+  const paidFilterRows = useMemo(
+    () => [
+      ...(Array.isArray(paidData?.top_creatives) ? paidData.top_creatives : []),
+      ...(Array.isArray(paidData?.top_boosted_posts) ? paidData.top_boosted_posts : []),
+    ],
     [paidData]
   );
+  const paidFilterOptions = useMemo(() => {
+    const unique = (values: Array<string | null | undefined>) =>
+      Array.from(new Set(values.map((value) => String(value || "").trim()).filter(Boolean))).sort((left, right) =>
+        left.localeCompare(right, "pt-BR")
+      );
+    return {
+      campaigns: unique(paidFilterRows.map((row) => row.campaign_name)),
+      adsets: unique(paidFilterRows.flatMap((row) => [row.adset_name, row.adset_id])),
+      ads: unique(paidFilterRows.flatMap((row) => [row.ad_name, row.ad_id])),
+      platforms: unique(paidFilterRows.map((row) => row.source_platform)),
+    };
+  }, [paidFilterRows]);
   const paidManagerMetrics = paidData?.manager_metrics;
   const paidSourceTotals = paidData?.sources?.totals;
   const paidSourceManagerMetrics = paidData?.sources?.manager_metrics;
@@ -1707,6 +1675,11 @@ export default function Dashboard({
   const coveredDays = safe(coverage?.covered_days);
   const expectedDays = safe(coverage?.expected_days);
   const isPartialCoverage = Boolean(coverage?.is_partial) && expectedDays > 0;
+  const organicAwaitingMetrics = hasDash && coveredDays <= 0;
+  const hasPersistedOrganicData =
+    hasSummaryOrganicData ||
+    coveredDays > 0 ||
+    Object.values(kpisFromDash).some((value) => value > 0);
   const partialCoverageLabel = `Dados parciais: ${coveredDays}/${expectedDays} dias`;
 
   const monthAggRaw = useMemo(() => {
@@ -1821,17 +1794,8 @@ export default function Dashboard({
   const a = monthA ? getMonth(monthAgg, monthA) || makeEmptyMonthAgg(monthA) : undefined;
   const b = monthB ? getMonth(monthAgg, monthB) || makeEmptyMonthAgg(monthB) : undefined;
 
-  function handleSetActiveKpi(k: KpiKey) {
-    setActiveKpi(k);
-    setActiveMetric(metricFromKpi(k));
-  }
-
   function handleSelectMetric(metric: MetaMetricKey) {
     setActiveMetric(metric);
-    const linkedKpi = KPI_BY_META_METRIC[metric];
-    if (linkedKpi) {
-      setActiveKpi(linkedKpi);
-    }
   }
 
   function handleApplyMonthSelection(nextYear: number, nextMonth: number) {
@@ -1851,6 +1815,47 @@ export default function Dashboard({
   const deferredTopWords = useDeferredValue(topWords);
   const deferredStories = useDeferredValue(stories);
   const deferredNotes = useDeferredValue(notes);
+  const organicContentCounts = useMemo(() => {
+    const rows = arrayOrEmpty<IgMediaItem>(mediaFiltered);
+    const reels = rows.filter(
+      (media) => String(media.media_product_type || "").toUpperCase() === "REELS"
+    ).length;
+    const storiesInMedia = rows.filter((media) => {
+      const productType = String(media.media_product_type || "").toUpperCase();
+      const mediaType = String(media.media_type || "").toUpperCase();
+      return productType === "STORY" || mediaType === "STORY";
+    }).length;
+    const posts = rows.filter((media) => {
+      const productType = String(media.media_product_type || "").toUpperCase();
+      const mediaType = String(media.media_type || "").toUpperCase();
+      return productType !== "REELS" && productType !== "STORY" && mediaType !== "STORY";
+    }).length;
+    const mediaCommentCount = rows.reduce(
+      (total, media) => total + mediaInsightValue(media, "comments"),
+      0
+    );
+    return {
+      posts,
+      reels,
+      stories: Math.max(storiesInMedia, arrayOrEmpty(stories).length),
+      comments: Math.max(commentsTotal, arrayOrEmpty(comments).length, mediaCommentCount),
+    };
+  }, [comments, commentsTotal, mediaFiltered, stories]);
+  const organicMetricCards = useMemo(
+    () => [
+      { label: "Seguidores", value: kpisFromDash.followers },
+      { label: "Alcance", value: kpisFromDash.reach },
+      { label: "Impressões", value: kpisFromDash.impressions },
+      { label: "Interações", value: kpisFromDash.total_interactions },
+      { label: "Visitas ao perfil", value: kpisFromDash.profile_views },
+      { label: "Cliques no link", value: kpisFromDash.website_clicks },
+      { label: "Posts", value: organicContentCounts.posts },
+      { label: "Reels", value: organicContentCounts.reels },
+      { label: "Stories", value: organicContentCounts.stories },
+      { label: "Comentários", value: organicContentCounts.comments },
+    ],
+    [kpisFromDash, organicContentCounts]
+  );
   const mediaPanelLoading = loadingMedia || secondaryOrganicLoading;
   const commentsPanelLoading = loadingComments || secondaryOrganicLoading;
   const storiesPanelLoading = loadingStories;
@@ -1951,16 +1956,6 @@ export default function Dashboard({
 
   const topOrganicPost = topPostRanking[0]?.media || null;
 
-  const topBoostedCreative = useMemo(() => {
-    if (paidTopBoostedPosts.length) return paidTopBoostedPosts[0];
-    if (paidTopCreatives.length) {
-      const fromPost = paidTopCreatives.find((item) => String(item.post_id || "").trim());
-      if (fromPost) return fromPost;
-      return paidTopCreatives[0];
-    }
-    return null;
-  }, [paidTopBoostedPosts, paidTopCreatives]);
-
   const periodPerformanceAnswer = hasDash
     ? `Alcance ${fmt(kpisFromDash.reach)} • Interações ${fmt(kpisFromDash.total_interactions)}`
     : "Sem dados consolidados no período.";
@@ -1974,18 +1969,6 @@ export default function Dashboard({
         mediaInsightValue(topOrganicPost, "reach")
       )} • interações ${fmt(mediaInsightValue(topOrganicPost, "total_interactions"))}`
     : "Sem publicação orgânica no período.";
-  const paidAnswer = !hasPaidConnection
-    ? "Sem conexão de Ads."
-    : hasPaidData
-      ? `Sim • ${fmtCurrency(safe(paidTotals?.spend))} investidos`
-      : paidHasRows
-        ? "Conexão ativa, sem gasto no período."
-        : "Aguardando sincronização de Ads.";
-  const boostedAnswer = topBoostedCreative
-    ? `${String(topBoostedCreative.ad_name || `Post ${topBoostedCreative.post_id || ""}`).trim()} • ${fmtCurrency(
-        safe(topBoostedCreative.spend)
-      )} • ${fmt(safe(topBoostedCreative.clicks))} cliques`
-    : "Sem conteúdo turbinado no período.";
   const metaRenderKey = [
     organicConnectionId || "-",
     paidConnectionId || "-",
@@ -2028,36 +2011,34 @@ export default function Dashboard({
   return (
     <Shell
       themeClass={themeClass}
-      title={ROOVE_APP_NAME}
-      subtitle={profileName}
+      title=""
       right={
         <DashboardHeader
-          clientName={profileName}
-          connections={organicConnections.map((connection) => ({
-            id: connection.id,
-            label: connectionLabel(connection),
-            status: connection.status || "-",
-          }))}
-          activeConnectionId={organicConnectionId}
-          onSelectConnection={onSelectConnection}
+          activeView="meta"
+          statusChips={[
+            {
+              connected: hasActiveConnection === true,
+              label: `${hasActiveConnection === true ? "Orgânico conectado" : "Orgânico aguardando conexão"}${organicLastUpdatedLabel ? ` • ${organicLastUpdatedLabel}` : ""}`,
+            },
+            {
+              connected: hasPaidConnection,
+              label: `${hasPaidConnection ? "Ads conectado" : "Ads aguardando conexão"}${paidLastUpdatedLabel ? ` • ${paidLastUpdatedLabel}` : ""}`,
+            },
+          ]}
           periodPreset={periodPreset}
           onSelectPeriodPreset={onSelectPeriodPreset}
-          oauthConnecting={oauthConnecting}
           backgroundRefreshing={refreshingSummary || refreshingMonthly || refreshingPaid}
-          organicLastUpdatedLabel={organicLastUpdatedLabel}
-          paidLastUpdatedLabel={paidLastUpdatedLabel}
-          onConnectIntegration={onConnectMetaOAuth}
+          onOpenMeta={() => {}}
           onOpenGoogleAnalytics={onOpenGoogleAnalytics}
-          onOpenShopifyReport={onOpenShopifyReport}
           refreshing={syncing}
-          aiLoading={aiLoading}
           onRefresh={onRefresh}
-          onAi={runAi}
+          aiLoading={SHOW_PRESENTATION_EXTRAS ? aiLoading : false}
+          onAi={SHOW_PRESENTATION_EXTRAS ? runAi : undefined}
           onLogout={onLogoutClick}
         />
       }
     >
-      <div className="layout">
+      <div className={`layout ${SHOW_PRESENTATION_EXTRAS ? "" : "layoutPresentation"}`.trim()}>
         {/* COLUNA PRINCIPAL */}
         <div className="panel">
           {configWarning ? (
@@ -2069,7 +2050,7 @@ export default function Dashboard({
           <div className="panelHead">
             <div>
               <div className="panelTitle">Visão Geral de Performance</div>
-              <div className="panelSub">Orgânico e Ads no período selecionado.</div>
+              <div className="panelSub">Leituras separadas por fonte no período selecionado.</div>
             </div>
 
             <div className="monthControls">
@@ -2115,9 +2096,9 @@ export default function Dashboard({
               <div className="card cardWide">
                 <div className="sectionHeader">
                   <div>
-                    <div className="h1">Conexão de dados pendente</div>
+                    <div className="h1">Instagram orgânico ainda não conectado</div>
                     <div className="p">
-                      O dashboard continua disponível. Conecte a integração da Roove para preencher as métricas.
+                      O dashboard continua disponível. Conecte o Instagram Graph para preencher as métricas orgânicas.
                     </div>
                   </div>
                   {onOpenSetup ? (
@@ -2141,26 +2122,44 @@ export default function Dashboard({
                 <div className="skeleton skeletonKpi" />
               </div>
             ) : hasDash ? (
-              <KpiCards
-                kpis={kpisFromDash}
-                kpisToday={kpisToday}
-                dash={dash}
-                paidData={paidData}
-                activeKpi={activeKpi}
-                onSetActiveKpi={handleSetActiveKpi}
-              />
+              <>
+                <div className="organicSourceHeader">
+                  <div>
+                    <div className="h1">Meta Orgânico / Instagram</div>
+                    <div className="p">Posts, reels, stories, alcance, engajamento e comentários vindos da conexão orgânica.</div>
+                  </div>
+                  <span className="pill">Fonte: Instagram Graph · {formatSelectedPeriodLabel(period)}</span>
+                </div>
+                {organicAwaitingMetrics ? (
+                  <div className="organicWaitingState">Instagram orgânico conectado, aguardando sincronização.</div>
+                ) : null}
+                <div className="organicMetricGrid">
+                  {organicMetricCards.map((card) => (
+                    <div className="organicMetricCard" key={card.label}>
+                      <span>{card.label}</span>
+                      <strong>{fmt(card.value)}</strong>
+                    </div>
+                  ))}
+                </div>
+              </>
             ) : (
               <div className="card cardWide">
                 <MetaStateNotice
-                  title="Visão orgânica indisponível"
-                  description="O núcleo principal da Meta não carregou dessa vez."
+                  title={hasActiveConnection === false ? "Instagram orgânico ainda não conectado" : "Instagram orgânico aguardando dados"}
+                  description={
+                    hasActiveConnection === false
+                      ? "Conecte o Instagram Graph para ler alcance, interações, mídia e comentários."
+                      : "A conexão pode estar pronta enquanto as métricas do período são atualizadas."
+                  }
                   tone={dashError ? "unavailable" : "empty"}
                   message={
                     dashError
-                      ? `Não foi possível carregar o resumo principal: ${dashError}`
-                      : "Ainda não há dados consolidados para esse período."
+                      ? "Não foi possível carregar o resumo principal agora."
+                      : hasActiveConnection === false
+                        ? "Instagram orgânico ainda não conectado."
+                        : "Instagram orgânico conectado, aguardando sincronização."
                   }
-                  secondaryMessage="Os blocos secundários continuam isolados para evitar que a página caia."
+                  secondaryMessage="Comentários, stories e reels aparecem assim que o Instagram Graph retornar o detalhamento."
                 />
               </div>
             )}
@@ -2180,14 +2179,6 @@ export default function Dashboard({
                 <div className="quickAnswerCard">
                   <span className="smallMuted">Qual post performou melhor?</span>
                   <strong>{topPostAnswer}</strong>
-                </div>
-                <div className="quickAnswerCard">
-                  <span className="smallMuted">Houve mídia paga? Quanto foi gasto?</span>
-                  <strong>{paidAnswer}</strong>
-                </div>
-                <div className="quickAnswerCard">
-                  <span className="smallMuted">Qual conteúdo turbinado performou melhor?</span>
-                  <strong>{boostedAnswer}</strong>
                 </div>
               </div>
             </div>
@@ -2246,7 +2237,11 @@ export default function Dashboard({
                 ))}
               </select>
             </div>
-            {dashboardError ? <div className="smallMuted dashboardInlineError">{dashboardError}</div> : null}
+            {dashboardError ? (
+              <div className="smallMuted dashboardInlineError">
+                Algumas leituras não ficaram disponíveis agora.
+              </div>
+            ) : null}
 
             <MetaBlockBoundary
               resetKey={`main-chart:${metaRenderKey}:${activeMetric}:${chartGranularity}`}
@@ -2269,7 +2264,6 @@ export default function Dashboard({
                     title={`${activeMetricLabel} no período`}
                     metric={activeMetric}
                     dash={dash!}
-                    paidData={paidData}
                     days={rangeDays}
                     periodLabel={periodLabel}
                     granularity={chartGranularity}
@@ -2284,7 +2278,7 @@ export default function Dashboard({
                       tone={dashError ? "unavailable" : "empty"}
                       message={
                         dashError
-                          ? `Não foi possível montar o gráfico principal: ${dashError}`
+                          ? "Não foi possível montar o gráfico principal agora."
                           : "Clique em “Atualizar dados” para sincronizar esse período."
                       }
                     />
@@ -2295,7 +2289,7 @@ export default function Dashboard({
 
           </div>
 
-          <div className="panelBlock">
+          <div className="panelBlock" id="ads-fbits">
             <MetaBlockBoundary
               resetKey={`paid:${metaRenderKey}`}
               title="Campanhas de Ads"
@@ -2309,6 +2303,7 @@ export default function Dashboard({
                 </div>
                 <div className="dashboardSectionMeta">
                   {paidLastUpdatedLabel ? <span className="dashboardTimestamp">{paidLastUpdatedLabel}</span> : null}
+                  <span className="pill">Fonte: Meta Ads · {formatSelectedPeriodLabel(period)}</span>
                   <div className="smallMuted">
                     Status Ads: {paidStatusLabel} • {paidDateRangeLabel}
                   </div>
@@ -2329,8 +2324,57 @@ export default function Dashboard({
                   title="Ads indisponíveis"
                   description="A falha desse bloco não derruba o restante da página."
                   tone="unavailable"
-                  message={`Falha ao carregar Ads: ${paidError}`}
+                  message="A leitura de Meta Ads não ficou disponível agora."
                 />
+              ) : null}
+
+              {paidData && hasPaidData ? (
+                <div className="paidFilters" aria-label="Filtros Meta Ads">
+                  <label>
+                    <span>Campanha Meta</span>
+                    <select
+                      className="select"
+                      onChange={(event) => setPaidCampaignFilter(event.target.value)}
+                      value={paidCampaignFilter}
+                    >
+                      <option value="">Todas as campanhas</option>
+                      {paidFilterOptions.campaigns.map((option) => <option key={option} value={option}>{option}</option>)}
+                    </select>
+                  </label>
+                  <label>
+                    <span>Conjunto</span>
+                    <select
+                      className="select"
+                      onChange={(event) => setPaidAdsetFilter(event.target.value)}
+                      value={paidAdsetFilter}
+                    >
+                      <option value="">Todos os conjuntos</option>
+                      {paidFilterOptions.adsets.map((option) => <option key={option} value={option}>{option}</option>)}
+                    </select>
+                  </label>
+                  <label>
+                    <span>Anúncio</span>
+                    <select
+                      className="select"
+                      onChange={(event) => setPaidAdFilter(event.target.value)}
+                      value={paidAdFilter}
+                    >
+                      <option value="">Todos os anúncios</option>
+                      {paidFilterOptions.ads.map((option) => <option key={option} value={option}>{option}</option>)}
+                    </select>
+                  </label>
+                  <label>
+                    <span>Plataforma</span>
+                    <select
+                      className="select"
+                      onChange={(event) => setPaidPlatformFilter(event.target.value)}
+                      value={paidPlatformFilter}
+                    >
+                      <option value="">Todas as plataformas</option>
+                      {paidFilterOptions.platforms.map((option) => <option key={option} value={option}>{option}</option>)}
+                    </select>
+                  </label>
+                </div>
               ) : null}
 
               {paidData && hasPaidData ? (
@@ -2551,7 +2595,7 @@ export default function Dashboard({
                     title="Série mensal indisponível"
                     description="A comparação mensal falhou, mas o restante da tela continua utilizável."
                     tone="unavailable"
-                    message={`Falha ao montar série mensal: ${monthlyError}`}
+                    message="A série mensal não ficou disponível agora."
                   />
                 ) : (
                   <MetaStateNotice
@@ -2675,14 +2719,14 @@ export default function Dashboard({
           <div className="panelBlock">
             <MetaBlockBoundary
               resetKey={`media:${metaRenderKey}:${selectedMonthKey || "all"}`}
-              title="Desempenho por conteúdo"
-              description="Mídias e ranking orgânico"
+              title="Conteúdo orgânico"
+              description="Prévia visual e ranking do conteúdo orgânico"
             >
             <div className="sectionHeader">
               <div>
-                <div className="h1">Desempenho por Conteúdo</div>
+                <div className="h1">Conteúdo orgânico</div>
                 <div className="p">
-                  Ranking automático dos melhores conteúdos + métricas + link. Posts no período: {deferredMediaFiltered.length}.
+                  Reels, posts e stories com leitura visual, métricas e link. Conteúdos no período: {deferredMediaFiltered.length}.
                 </div>
               </div>
               <div className="dashboardSectionMeta">
@@ -2730,15 +2774,27 @@ export default function Dashboard({
                   title="Mídias indisponíveis"
                   description="Esse bloco falhou isoladamente e não derruba a página."
                   tone="unavailable"
-                  message={`Falha ao carregar mídia: ${mediaError}`}
+                  message={
+                    hasPersistedOrganicData
+                      ? "Não foi possível carregar posts e reels agora."
+                      : "Posts e reels ainda não sincronizados."
+                  }
                 />
               ) : null}
               {!deferredMediaFiltered.length && !mediaPanelLoading && !mediaError ? (
                 <MetaStateNotice
-                  title="Sem mídia para o período"
-                  description="Quando houver posts ou reels nesse recorte, eles aparecem aqui."
+                  title={hasPersistedOrganicData ? "Sem posts ou reels no período" : "Posts e reels ainda não sincronizados"}
+                  description={
+                    hasPersistedOrganicData
+                      ? "A leitura orgânica está disponível e não retornou mídias nesse recorte."
+                      : "Quando a sincronização orgânica trouxer mídias nesse recorte, elas aparecem aqui."
+                  }
                   tone="empty"
-                  message="Sem mídia para o período selecionado."
+                  message={
+                    hasPersistedOrganicData
+                      ? "Sem dados no período."
+                      : "Posts ainda não sincronizados. Reels ainda não sincronizados."
+                  }
                 />
               ) : null}
               {mediaHasMore ? (
@@ -2770,6 +2826,8 @@ export default function Dashboard({
                 refreshing={refreshingComments}
                 updatedAtLabel={commentsLastUpdatedLabel}
                 hasMore={commentsHasMore}
+                total={commentsTotal}
+                hasOrganicData={hasPersistedOrganicData}
                 error={commentsError}
                 onLoadMore={handleLoadMoreComments}
               />
@@ -2798,7 +2856,7 @@ export default function Dashboard({
           </div>
         </div>
 
-        {/* SIDEBAR */}
+        {SHOW_PRESENTATION_EXTRAS ? (
         <aside className="sidebar">
           <MetaBlockBoundary
             resetKey={`notes:${metaRenderKey}`}
@@ -2835,6 +2893,7 @@ export default function Dashboard({
             <AiSummaryCard aiReport={aiReport} aiErr={aiErr} />
           </MetaBlockBoundary>
         </aside>
+        ) : null}
       </div>
     </Shell>
   );

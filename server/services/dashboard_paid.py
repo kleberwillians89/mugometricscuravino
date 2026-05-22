@@ -422,6 +422,8 @@ def _aggregate_top_creatives(rows: List[Dict[str, Any]], limit: int = 20) -> Lis
                 "source_platform": str(row.get("source_platform") or "").strip() or None,
                 "campaign_id": str(row.get("campaign_id") or "").strip() or None,
                 "campaign_name": str(row.get("campaign_name") or "").strip() or None,
+                "adset_id": str(row.get("adset_id") or "").strip() or None,
+                "adset_name": str(row.get("adset_name") or "").strip() or None,
                 "spend": 0.0,
                 "impressions": 0,
                 "reach": 0,

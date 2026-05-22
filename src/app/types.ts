@@ -11,6 +11,8 @@ export type IgMediaItem = {
   timestamp?: string | null;
   permalink?: string | null;
   thumb_url?: string | null;
+  thumbnail_url?: string | null;
+  media_url?: string | null;
   insights?: Record<string, unknown>;
 };
 
@@ -168,6 +170,82 @@ export type ShopifyReportResponse = {
   recent_orders: ShopifyRecentOrder[];
   top_products: ShopifyTopProduct[];
   technical: ShopifyTechnicalSummary;
+};
+
+// =========================
+// FBits official sales
+// =========================
+export type FbitsOrdersSummary = {
+  receita_oficial: number;
+  pedidos: number;
+  ticket_medio: number;
+  clientes: number;
+  produtos_vendidos: number;
+};
+
+export type FbitsOrdersSummaryResponse = {
+  ok: boolean;
+  connected: boolean;
+  client_id: string;
+  period: {
+    start: string;
+    end: string;
+  };
+  summary: FbitsOrdersSummary;
+  message?: string | null;
+};
+
+export type FbitsOrderRow = {
+  pedido_id: string;
+  pedido_codigo?: string | null;
+  situacao_pedido_id: number;
+  situacao_pedido?: string | null;
+  data: string;
+  data_pagamento?: string | null;
+  receita_oficial: number;
+  produtos_vendidos: number;
+  cliente_key?: string | null;
+  cliente_id?: string | null;
+  cliente_nome?: string | null;
+  cliente_email?: string | null;
+  cliente_documento?: string | null;
+  forma_pagamento?: string | null;
+  status_pagamento?: string | null;
+  produtos?: FbitsProductRow[];
+};
+
+export type FbitsProductRow = {
+  product_id?: string | null;
+  sku?: string | null;
+  produto: string;
+  quantidade: number;
+  valor_unitario?: number;
+  receita: number;
+  imagem?: string | null;
+};
+
+export type FbitsCustomerRow = {
+  customer_id?: string | null;
+  cliente: string;
+  email?: string | null;
+  pedidos: number;
+  receita: number;
+};
+
+export type FbitsOrdersResponse = {
+  ok: boolean;
+  connected: boolean;
+  client_id: string;
+  period: {
+    start: string;
+    end: string;
+  };
+  count: number;
+  items: FbitsOrderRow[];
+  top_products?: FbitsProductRow[];
+  top_customers?: FbitsCustomerRow[];
+  detail_available?: boolean;
+  message?: string | null;
 };
 
 // =========================
@@ -670,6 +748,8 @@ export type PaidDashboardResponse = {
       source_platform?: string | null;
       campaign_id?: string | null;
       campaign_name?: string | null;
+      adset_id?: string | null;
+      adset_name?: string | null;
     } & PaidTotals
   >;
   top_boosted_posts?: Array<
@@ -681,6 +761,8 @@ export type PaidDashboardResponse = {
       source_platform?: string | null;
       campaign_id?: string | null;
       campaign_name?: string | null;
+      adset_id?: string | null;
+      adset_name?: string | null;
     } & PaidTotals
   >;
   sources?: {

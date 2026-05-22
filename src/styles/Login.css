@@ -1,15 +1,15 @@
 :root {
-  --mugo-red: #b44336;
+  --mugo-red: #b22234;
   --mugo-red-dark: #98372d;
   --mugo-gold: #c79830;
-  --mugo-cream: #f7f3ec;
+  --mugo-cream: #f5f5f5c;
   --mugo-soft: #f1ece4;
   --mugo-border: rgba(180, 67, 54, 0.14);
   --mugo-text: #1f1f1f;
-  --mugo-muted: #6f6a63;
+  --mugo-muted: #5b6770;
   --mugo-blue-950: #07131f;
   --mugo-blue-900: #0c253a;
-  --mugo-blue-800: #10334e;
+  --mugo-blue-800: #0c4160;
   --mugo-blue-glow: rgba(96, 156, 212, 0.18);
 }
 
@@ -20,6 +20,7 @@
   align-items: center;
   justify-content: center;
   padding: clamp(18px, 3.4vh, 32px) 20px;
+  overflow-x: clip;
   overflow-y: auto;
   background:
     radial-gradient(820px 380px at 8% 0%, var(--mugo-blue-glow), transparent 58%),
@@ -30,6 +31,7 @@
 
 .loginShell {
   width: min(1240px, 100%);
+  min-width: 0;
   min-height: min(720px, calc(100dvh - 64px));
   display: grid;
   grid-template-columns: 1.1fr 0.9fr;
@@ -48,9 +50,10 @@
   flex-direction: column;
   justify-content: center;
   padding: 44px 56px;
-  background: linear-gradient(180deg, #f7f5f1 0%, #f3f0ea 100%);
+  background: linear-gradient(180deg, #f5f5f5 0%, #f3f0ea 100%);
   color: #1f2328;
   overflow: hidden;
+  min-width: 0;
 }
 
 .loginBrandTopLogo {
@@ -62,7 +65,7 @@
   margin-bottom: 42px;
   padding: 10px;
   background: transparent;
-  border: 2px solid #c44a3d;
+  border: 2px solid #b22234;
   border-radius: 28px;
   box-shadow: none;
   overflow: hidden;
@@ -89,16 +92,16 @@
   letter-spacing: 0.18em;
   text-transform: uppercase;
   font-weight: 700;
-  color: #c44a3d;
+  color: #b22234;
 }
 
 .loginBrandCopy h1 {
   margin: 0 0 18px;
   font-size: clamp(44px, 5vw, 72px);
   line-height: 0.95;
-  letter-spacing: -0.04em;
+  letter-spacing: 0;
   font-weight: 800;
-  color: #c44a3d;
+  color: #b22234;
 }
 
 .loginBrandLead {
@@ -106,7 +109,7 @@
   max-width: 560px;
   font-size: 18px;
   line-height: 1.55;
-  color: #4b4b4b;
+  color: #5b6770;
 }
 
 .loginBrandTag {
@@ -121,7 +124,7 @@
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #c44a3d;
+  color: #b22234;
   background: transparent;
 }
 
@@ -144,7 +147,7 @@
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #c44a3d;
+  color: #b22234;
   background: transparent;
 }
 
@@ -154,21 +157,14 @@
   align-items: center;
   justify-content: center;
   padding: 56px 48px;
-  background: #f7f3ec;
+  background: #f5f5f5;
+  min-width: 0;
 }
 
 .loginCardInner {
   width: 100%;
   max-width: 460px;
-}
-
-.loginEyebrow {
-  margin: 0 0 14px;
-  font-size: 14px;
-  font-weight: 800;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: #8c847a;
+  min-width: 0;
 }
 
 .loginCard h2,
@@ -176,13 +172,14 @@
   margin: 0 0 16px;
   font-size: clamp(32px, 4vw, 58px);
   line-height: 1;
-  letter-spacing: -0.04em;
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
   color: #14202a;
 }
 
 .loginCard p {
   margin: 0 0 28px;
-  color: #6b655f;
+  color: #5b6770;
   font-size: 17px;
   line-height: 1.55;
 }
@@ -221,7 +218,7 @@
   font-weight: 800;
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: #8b847c;
+  color: #5b6770;
 }
 
 .loginCard input {
@@ -230,7 +227,7 @@
   padding: 0 20px;
   border-radius: 20px;
   border: 1px solid #ddd6cc;
-  background: #fdfcfb;
+  background: #f5f5f5;
   outline: none;
   font-size: 16px;
   color: #1e1e1e;
@@ -245,7 +242,7 @@
 .loginCard input:focus {
   border-color: rgba(180, 67, 54, 0.35);
   box-shadow: 0 0 0 4px rgba(180, 67, 54, 0.08);
-  background: #ffffff;
+  background: #f5f5f5;
 }
 
 .loginCard button {
@@ -253,8 +250,8 @@
   height: 62px;
   border: none;
   border-radius: 22px;
-  background: #c44a3d;
-  color: #ffffff;
+  background: #b22234;
+  color: #f5f5f5;
   font-size: 18px;
   font-weight: 800;
   cursor: pointer;
@@ -273,11 +270,23 @@
   transform: none;
 }
 
+.loginCard .loginLocalButton {
+  margin-top: 14px;
+  background: transparent;
+  color: #b22234;
+  border: 1px solid rgba(180, 67, 54, 0.24);
+  box-shadow: none;
+}
+
+.loginCard .loginLocalButton:hover {
+  box-shadow: 0 12px 24px rgba(20, 32, 42, 0.08);
+}
+
 .loginHint {
   margin-top: 24px;
   font-size: 14px;
   line-height: 1.6;
-  color: #938d87;
+  color: #5b6770;
 }
 
 /* RESPONSIVO */
@@ -320,6 +329,11 @@
     padding: 26px 20px;
   }
 
+  .loginBrandTags span {
+    min-width: 0;
+    max-width: 100%;
+  }
+
   .loginBrandTopLogo {
     padding: 12px;
     border-radius: 20px;
@@ -340,7 +354,8 @@
 
   .loginCard h2,
   .loginCard h1 {
-    font-size: 42px;
+    font-size: clamp(32px, 10vw, 40px);
+    line-height: 1.06;
   }
 
   .loginCard input,

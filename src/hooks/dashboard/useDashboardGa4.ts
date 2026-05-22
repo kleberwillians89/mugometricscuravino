@@ -71,6 +71,7 @@ export default function useDashboardGa4({
   }, [ga4Report]);
 
   useEffect(() => {
+    if (!cachedInitial) return;
     setGa4Report(cachedInitial);
     dataRef.current = cachedInitial;
   }, [cachedInitial]);
@@ -101,6 +102,9 @@ export default function useDashboardGa4({
           start: safePeriod.start,
           end: safePeriod.end,
           days: safeDays,
+        }, {
+          clientId: activeClientId,
+          signal: controller.signal,
         });
         if (reqId !== requestRef.current) return null;
         setGa4Report(response);

@@ -153,7 +153,7 @@ async def fetch_media_insights(
 
 
 async def fetch_media_comments(media_id: str, access_token: str, limit: int = 50) -> List[Dict[str, Any]]:
-    fields = "id,text,username,timestamp"
+    fields = "id,text,username,timestamp,like_count"
     token = _clean_token(access_token)
     items: List[Dict[str, Any]] = []
     next_url: str | None = None
@@ -203,6 +203,27 @@ async def fetch_stories(ig_user_id: str, access_token: str, limit: int = 25) -> 
         },
     )
     return resp.get("data", [])
+
+
+async def fetch_story_insights(story_id: str, access_token: str) -> Dict[str, int]:
+    resp = await meta_get_json(
+        f"/{story_id}/insights",
+        {
+            "metric": "impressions,reach,replies,shares,total_interactions,profile_activity",
+            "access_token": _clean_token(access_token),
+        },
+    )
+    out: Dict[str, int] = {}
+    for item in resp.get("data", []):
+        name = str(item.get("name") or "").strip()
+        values = item.get("values") or []
+        if not name:
+            continue
+        if values and isinstance(values, list):
+            out[name] = int((values[0] or {}).get("value") or 0)
+        else:
+            out[name] = int(((item.get("total_value") or {}).get("value")) or 0)
+    return out
 
 
 def _normalize_ad_account_id(ad_account_id: str) -> str:

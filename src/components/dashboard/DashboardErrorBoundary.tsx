@@ -35,7 +35,7 @@ export default class DashboardErrorBoundary extends Component<Props, State> {
           <div style={{ maxWidth: 560, textAlign: "center" }}>
             <h2 style={{ marginBottom: 8 }}>O dashboard encontrou um erro</h2>
             <p style={{ color: "rgba(10,13,16,.70)" }}>
-              Atualize a página. Se o problema continuar, revise a integração da Roove na tela de configuração.
+              Atualize a página. Se o problema continuar, revise a integração da Curavino na tela de configuração.
             </p>
           </div>
         </div>

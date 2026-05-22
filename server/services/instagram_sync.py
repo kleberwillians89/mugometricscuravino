@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import os
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -13,8 +14,11 @@ from .ig_meta import (
     fetch_media_insights,
     fetch_media_list,
     fetch_profile,
+    fetch_stories,
+    fetch_story_insights,
 )
 from .ig_supabase import sb_get_one, sb_insert, sb_select, sb_update, sb_upsert, sb_upload_public
+from .meta_oauth import fetch_instagram_identity
 from .meta_tokens import ensure_valid_meta_token
 
 
@@ -56,6 +60,18 @@ def _empty_kpis() -> Dict[str, int]:
     }
 
 
+def _env(name: str) -> str:
+    return str(os.getenv(name) or "").strip()
+
+
+def _schema_warning(block: str, client_id: str, connection_id: str, exc: httpx.HTTPStatusError) -> None:
+    status = exc.response.status_code if exc.response is not None else "-"
+    print(
+        "[ig_sync][schema_pending] "
+        f"block={block} client_id={client_id} connection_id={connection_id} status={status}"
+    )
+
+
 async def _resolve_connection_by_id(connection_id: str) -> Optional[Dict[str, Any]]:
     rows = await sb_select("meta_connections", filters={"id": f"eq.{connection_id}"}, limit=1)
     return rows[0] if rows else None
@@ -79,6 +95,85 @@ async def _mark_connection_error(connection_id: str, message: str) -> None:
     )
 
 
+def _identity_candidates(identity: Dict[str, Any]) -> List[Dict[str, str]]:
+    return [
+        {
+            "ig_user_id": str((account or {}).get("ig_user_id") or "").strip(),
+            "username": str((account or {}).get("username") or "").strip(),
+            "business_id": str((account or {}).get("business_id") or "").strip(),
+            "business_name": str((account or {}).get("business_name") or "").strip(),
+        }
+        for account in (identity.get("instagram_accounts") or [])
+        if str((account or {}).get("ig_user_id") or "").strip()
+    ]
+
+
+def _pick_identity_candidate(candidates: List[Dict[str, str]], client: Dict[str, Any] | None) -> Dict[str, str] | None:
+    if len(candidates) == 1:
+        return candidates[0]
+    terms = [
+        str((client or {}).get(key) or "").strip().lower()
+        for key in ("name", "slug")
+        if str((client or {}).get(key) or "").strip()
+    ]
+    matches = [
+        candidate
+        for candidate in candidates
+        if any(
+            term in f"{candidate.get('username', '')} {candidate.get('business_name', '')}".lower()
+            for term in terms
+        )
+    ]
+    return matches[0] if len(matches) == 1 else None
+
+
+async def discover_instagram_identity_for_connection(
+    connection_id: str,
+    *,
+    persist_if_unambiguous: bool = True,
+) -> Dict[str, Any]:
+    conn = await _resolve_connection_by_id(connection_id)
+    if not conn:
+        raise RuntimeError("Conexão Instagram não encontrada.")
+    client_id = str(conn.get("client_id") or "").strip()
+    if not client_id:
+        raise RuntimeError("Conexão sem client_id.")
+
+    token = await ensure_valid_meta_token(
+        client_id,
+        connection_id=connection_id,
+        platform="instagram",
+        connection_type="organic",
+    )
+    identity = await fetch_instagram_identity(token)
+    candidates = _identity_candidates(identity)
+    client = await sb_get_one("clients", f"id=eq.{client_id}")
+    selected = _pick_identity_candidate(candidates, client)
+    source = "single_or_client_match" if selected else "ambiguous_or_missing"
+    print(
+        "[ig_sync][identity] "
+        f"client_id={client_id} connection_id={connection_id} candidates={len(candidates)} "
+        f"selected={str((selected or {}).get('ig_user_id') or '-')} source={source}"
+    )
+    if selected and persist_if_unambiguous:
+        patch = {
+            "ig_user_id": selected["ig_user_id"],
+            "username": selected.get("username") or None,
+            "business_id": selected.get("business_id") or None,
+            "meta_user_id": str((identity.get("meta_user") or {}).get("id") or "").strip() or None,
+        }
+        await sb_update("meta_connections", filters={"id": f"eq.{connection_id}"}, patch=patch, returning="minimal")
+        await sb_update("clients", filters={"id": f"eq.{client_id}"}, patch={"ig_user_id": patch["ig_user_id"]}, returning="minimal")
+    return {
+        "ok": True,
+        "client_id": client_id,
+        "connection_id": connection_id,
+        "meta_user": identity.get("meta_user") or {},
+        "instagram_accounts": candidates,
+        "selected": selected,
+    }
+
+
 async def _run_sync_for_client_and_ig(
     *,
     client_id: str,
@@ -93,6 +188,7 @@ async def _run_sync_for_client_and_ig(
         "media": {"ok": False, "status": "pending"},
         "comments": {"ok": False, "status": "pending"},
         "insights": {"ok": False, "status": "pending"},
+        "stories": {"ok": False, "status": "pending"},
     }
 
     profile = await fetch_profile(ig_user_id, access_token)
@@ -133,6 +229,9 @@ async def _run_sync_for_client_and_ig(
     enriched: List[Dict[str, Any]] = []
     media_rows: List[Dict[str, Any]] = []
     comment_rows: List[Dict[str, Any]] = []
+    persisted_comments = 0
+    persisted_media = 0
+    persisted_snapshot = False
 
     for m in media:
         media_id = str(m.get("id") or "").strip()
@@ -166,11 +265,13 @@ async def _run_sync_for_client_and_ig(
                     comment_rows.append(
                         {
                             "client_id": client_id,
+                            "connection_id": connection_id,
                             "media_id": media_id,
                             "comment_id": str(c.get("id") or ""),
                             "text": c.get("text") or "",
                             "username": c.get("username") or "",
-                            "timestamp": c.get("timestamp"),
+                            "like_count": c.get("like_count"),
+                            "timestamp": _normalize_meta_ts(c.get("timestamp")),
                         }
                     )
             except Exception:
@@ -226,21 +327,73 @@ async def _run_sync_for_client_and_ig(
             }
         )
 
+    stories: List[Dict[str, Any]] = []
+    try:
+        stories = await fetch_stories(ig_user_id, access_token, limit=min(limit, 50))
+        for story in stories:
+            story_id = str(story.get("id") or "").strip()
+            if not story_id:
+                continue
+            story_insights: Dict[str, Any] = {}
+            try:
+                story_insights = await fetch_story_insights(story_id, access_token)
+            except Exception as exc:
+                print(
+                    "[ig_sync][meta_warning] "
+                    f"block=story_insights client_id={client_id} story_id={story_id} error={exc.__class__.__name__}"
+                )
+            media_rows.append(
+                {
+                    "client_id": client_id,
+                    "connection_id": connection_id,
+                    "media_id": story_id,
+                    "media_type": story.get("media_type"),
+                    "media_product_type": "STORY",
+                    "caption": None,
+                    "permalink": story.get("permalink"),
+                    "timestamp": _normalize_meta_ts(story.get("timestamp")),
+                    "thumb_url": story.get("thumbnail_url") or story.get("media_url"),
+                    "media_url": story.get("media_url"),
+                    "thumbnail_url": story.get("thumbnail_url"),
+                    "insights_json": story_insights or {},
+                }
+            )
+        block_status["stories"] = {"ok": True, "status": "ok", "fetched": len(stories)}
+    except Exception as exc:
+        block_status["stories"] = {
+            "ok": False,
+            "status": _classify_meta_error(exc),
+            "detail": str(exc)[:180],
+        }
+        print(
+            "[ig_sync][meta_warning] "
+            f"block=stories client_id={client_id} ig_user_id={ig_user_id} error={str(exc)[:280]}"
+        )
+        warnings.append("Stories não ficaram disponíveis nesta atualização.")
+
     if comment_rows:
         rows = [r for r in comment_rows if str(r.get("comment_id") or "").strip()]
         if rows:
             try:
                 await sb_upsert("ig_comments", rows, on_conflict="client_id,comment_id")
+                persisted_comments = len(rows)
             except httpx.HTTPStatusError as exc:
                 if exc.response is None or exc.response.status_code not in {400, 404, 409}:
                     raise
+                _schema_warning("comments", client_id, connection_id, exc)
                 warnings.append("Comentários não foram persistidos por incompatibilidade de schema.")
 
-    block_status["comments"] = {"ok": True, "status": "ok", "saved": len(comment_rows)}
+    block_status["comments"] = {
+        "ok": True,
+        "status": "ok",
+        "fetched": len(comment_rows),
+        "saved": persisted_comments,
+    }
 
     if media_rows:
         try:
             await sb_upsert("ig_media", media_rows, on_conflict="client_id,media_id")
+            persisted_media = len(media_rows)
         except httpx.HTTPStatusError as exc:
             if exc.response is None or exc.response.status_code not in {400, 404, 409}:
                 raise
@@ -252,8 +405,10 @@ async def _run_sync_for_client_and_ig(
                     row_copy.pop("connection_id", None)
                     media_rows_no_conn.append(row_copy)
                 await sb_upsert("ig_media", media_rows_no_conn, on_conflict="client_id,media_id")
+                persisted_media = len(media_rows_no_conn)
                 warnings.append("Mídias persistidas sem connection_id (schema legado).")
             else:
+                _schema_warning("media", client_id, connection_id, exc)
                 warnings.append("Mídias não foram persistidas por incompatibilidade de schema.")
 
     impressions_or_views = int(kpis.get("impressions") or kpis.get("views") or 0)
@@ -274,6 +429,7 @@ async def _run_sync_for_client_and_ig(
             [
                 {
                     "client_id": client_id,
+                    "connection_id": connection_id,
                     "snapshot_date": _utc_date_str(),
                     "followers_count": int(profile.get("followers_count") or 0),
                     "media_count": int(profile.get("media_count") or 0),
@@ -288,9 +444,11 @@ async def _run_sync_for_client_and_ig(
             ],
             on_conflict="client_id,snapshot_date",
         )
+        persisted_snapshot = True
     except httpx.HTTPStatusError as exc:
         if exc.response is None or exc.response.status_code not in {400, 404, 409}:
             raise
+        _schema_warning("snapshot", client_id, connection_id, exc)
         warnings.append("Snapshot diário não foi persistido por incompatibilidade de schema.")
 
     return {
@@ -306,7 +464,16 @@ async def _run_sync_for_client_and_ig(
             "accounts_engaged": int(kpis.get("accounts_engaged") or 0),
         },
         "media": enriched,
-        "comments_saved": len(comment_rows),
+        "stories_fetched": len(stories),
+        "comments_fetched": len(comment_rows),
+        "comments_saved": persisted_comments,
+        "media_saved": persisted_media,
+        "snapshot_saved": persisted_snapshot,
+        "persisted": {
+            "media": persisted_media,
+            "comments": persisted_comments,
+            "snapshot": persisted_snapshot,
+        },
         "block_status": block_status,
         "warnings": warnings,
     }
@@ -329,7 +496,16 @@ async def sync_instagram_connection(connection_id: str, limit: int = 40) -> Dict
         client = await sb_get_one("clients", f"id=eq.{client_id}")
         ig_user_id = str((client or {}).get("ig_user_id") or "").strip()
     if not ig_user_id:
-        raise RuntimeError("Conexão sem ig_user_id. Reconecte e selecione um Instagram válido.")
+        ig_user_id = _env("META_IG_USER_ID")
+        if ig_user_id:
+            await sb_update("meta_connections", filters={"id": f"eq.{connection_id}"}, patch={"ig_user_id": ig_user_id}, returning="minimal")
+            await sb_update("clients", filters={"id": f"eq.{client_id}"}, patch={"ig_user_id": ig_user_id}, returning="minimal")
+            print(f"[ig_sync][identity] client_id={client_id} connection_id={connection_id} source=env")
+    if not ig_user_id:
+        discovered = await discover_instagram_identity_for_connection(connection_id)
+        ig_user_id = str(((discovered.get("selected") or {}).get("ig_user_id")) or "").strip()
+    if not ig_user_id:
+        raise RuntimeError("Conta Instagram Business ainda não vinculada à página Meta.")
 
     print(
         "[ig_sync] start "

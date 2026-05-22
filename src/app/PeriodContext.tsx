@@ -7,6 +7,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { countSelectedPeriodDays, getSelectedPeriodRange } from "./periodRange";
 
 type Period = {
   start: string;
@@ -36,15 +37,6 @@ function safeDate(value: string): Date | null {
   if (!trimmed) return null;
   const parsed = new Date(`${trimmed}T00:00:00`);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
-
-function diffDaysInclusive(start: string, end: string): number {
-  const s = safeDate(start);
-  const e = safeDate(end);
-  if (!s || !e) return 30;
-  const diffMs = e.getTime() - s.getTime();
-  if (!Number.isFinite(diffMs) || diffMs < 0) return 30;
-  return Math.max(1, Math.floor(diffMs / 86_400_000) + 1);
 }
 
 function defaultPeriod(days = 30): Period {
@@ -138,7 +130,7 @@ export function PeriodProvider({ children }: { children: ReactNode }) {
   );
 
   const periodDays = useMemo(
-    () => diffDaysInclusive(period.start, period.end),
+    () => countSelectedPeriodDays(getSelectedPeriodRange(period)),
     [period.end, period.start]
   );
 

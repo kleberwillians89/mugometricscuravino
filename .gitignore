@@ -15,4 +15,5 @@ server/credentials/
 coverage/
 Desktop/
 Downloads/
-stabilization_patch.diff
+stabilization_patch.diff.env.save
+supabase/.temp/

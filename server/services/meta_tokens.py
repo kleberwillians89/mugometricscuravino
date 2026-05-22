@@ -58,6 +58,14 @@ def _refresh_window() -> timedelta:
         return timedelta(days=7)
 
 
+def _disable_token_refresh() -> bool:
+    return _safe_bool(_env("META_DISABLE_TOKEN_REFRESH"), False)
+
+
+def _env_access_token() -> str:
+    return _env("META_ACCESS_TOKEN")
+
+
 def _token_expiry_from_connection(conn: Dict[str, Any]) -> Optional[datetime]:
     return _parse_ts(conn.get("token_expires_at")) or _parse_ts(conn.get("expires_at"))
 
@@ -103,15 +111,24 @@ def serialize_connection_status(conn: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _token_from_connection(conn: Dict[str, Any]) -> str:
+    plain = _safe_str(conn.get("access_token"))
+    if plain:
+        return plain
+
     encrypted = _safe_str(conn.get("encrypted_access_token"))
     if encrypted:
         return decrypt_secret(encrypted)
 
     # Compat com schema legado.
-    plain = _safe_str(conn.get("access_token"))
-    if plain:
-        return plain
     return ""
+
+
+def _log_token_source(source: str, *, disable_refresh: bool, connection_id: str = "") -> None:
+    print(
+        "[meta][token] "
+        f"source={source} disable_refresh={str(bool(disable_refresh)).lower()} "
+        f"connection_id={connection_id or '-'}"
+    )
 
 
 async def _log_event(client_id: str, event_type: str, ok: bool, details: Dict[str, Any]) -> None:
@@ -394,19 +411,40 @@ async def ensure_valid_meta_token(
         else await get_active_connection_for_client(client_id, platform=platform, connection_type=connection_type)
     )
 
+    disable_refresh = _disable_token_refresh()
+    env_token = _env_access_token()
+
+    if disable_refresh and env_token:
+        _log_token_source("env", disable_refresh=True, connection_id=_safe_str(connection_id))
+        return env_token
+
     if not conn:
+        if env_token:
+            _log_token_source("env", disable_refresh=disable_refresh, connection_id=_safe_str(connection_id))
+            return env_token
         raise RuntimeError("Cliente sem conexão Meta ativa.")
 
     if _requires_reauth(conn) or _safe_str(conn.get("status")).lower() == "needs_reauth":
+        if env_token:
+            _log_token_source("env", disable_refresh=disable_refresh, connection_id=_safe_str(conn.get("id")))
+            return env_token
         raise RuntimeError("Conexão Meta exige reconexão.")
     if not _is_active(conn):
+        if env_token:
+            _log_token_source("env", disable_refresh=disable_refresh, connection_id=_safe_str(conn.get("id")))
+            return env_token
         raise RuntimeError("Conexão Meta está inativa.")
 
     current_token = _token_from_connection(conn)
     if not current_token:
+        if env_token:
+            _log_token_source("env", disable_refresh=disable_refresh, connection_id=_safe_str(conn.get("id")))
+            return env_token
         if conn.get("id"):
             await _mark_connection_requires_reauth(str(conn.get("id")), "missing_token")
         raise RuntimeError("Token Meta ausente. Reconecte.")
+
+    _log_token_source("connection", disable_refresh=disable_refresh, connection_id=_safe_str(conn.get("id")))
 
     # Compat legado: não tenta persistir refresh fora de meta_connections.
     if bool(conn.get("__legacy")):
@@ -446,6 +484,24 @@ async def ensure_valid_meta_token(
             )
         except Exception as exc:
             msg = str(exc)
+            if env_token:
+                print(
+                    "[meta][token] "
+                    f"source=env disable_refresh={str(disable_refresh).lower()} "
+                    f"connection_id={conn_id} reason=refresh_failed fallback=true"
+                )
+                await _log_event(
+                    _safe_str(conn.get("client_id")) or client_id,
+                    "token_refresh",
+                    ok=False,
+                    details={
+                        "connection_id": conn_id,
+                        "error": msg[:400],
+                        "forced": bool(force_refresh),
+                        "fallback": "META_ACCESS_TOKEN",
+                    },
+                )
+                return env_token
             await _mark_connection_requires_reauth(conn_id, msg)
             await _log_event(
                 _safe_str(conn.get("client_id")) or client_id,
@@ -480,6 +536,13 @@ async def ensure_valid_meta_token(
         return token
     except MetaApiError as exc:
         if exc.invalid_oauth and not refreshed:
+            if env_token:
+                print(
+                    "[meta][token] "
+                    f"source=env disable_refresh={str(disable_refresh).lower()} "
+                    f"connection_id={conn_id} reason=connection_token_invalid fallback=true"
+                )
+                return env_token
             try:
                 token, expiry = await _exchange_long_lived_token(token)
                 await _persist_refreshed_token(conn_id, token, expiry)

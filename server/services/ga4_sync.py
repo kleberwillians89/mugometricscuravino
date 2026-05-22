@@ -10,7 +10,7 @@ from .ga4_client import run_ga4_report
 from .ga4_reporting import GA4ReportPeriod, resolve_ga4_report_period
 from .ig_supabase import sb_delete, sb_insert_many, sb_upsert
 from .job_runs import finish_job_run, start_job_run
-from .single_tenant import get_roove_client_id, get_roove_ga4_property_id
+from .single_tenant import resolve_ga4_context_for_client
 
 GA4_FUNNEL_EVENTS = ("view_item", "add_to_cart", "begin_checkout", "purchase")
 GA4_REPORT_METRICS = (
@@ -409,8 +409,9 @@ async def sync_ga4_for_period(
     trigger_source: str = "manual_api",
     record_job_run: bool = True,
 ) -> Dict[str, Any]:
-    resolved_client_id = _safe_str(client_id) or get_roove_client_id()
-    resolved_property_id = _safe_str(property_id) or get_roove_ga4_property_id()
+    context_client_id, context_property_id = resolve_ga4_context_for_client(client_id)
+    resolved_client_id = _safe_str(client_id) or context_client_id
+    resolved_property_id = _safe_str(property_id) or context_property_id
     period = resolve_ga4_report_period(start=since, end=until, days=days)
 
     job_run = None

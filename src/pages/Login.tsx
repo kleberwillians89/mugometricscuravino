@@ -1,14 +1,14 @@
 import { useEffect, useState, type FormEvent } from "react";
 import type { Session } from "@supabase/supabase-js";
-import { getSupabaseBootstrapError, supabase } from "../app/supabase";
+import { enableLocalAuth, getSupabaseBootstrapError, isLocalAuthAvailable, supabase } from "../app/supabase";
 import "../styles/Login.css";
 
 import logoVideo from "../assets/Mugo-3dlogo-spinning.mp4";
 
 const AUTH_DEBUG = import.meta.env.DEV && import.meta.env.VITE_AUTH_DEBUG === "true";
 
-const PRODUCT_NAME = "Mugô Metrics";
-const PANEL_NAME = "Mugô Intelligence Suite";
+const PRODUCT_NAME = "Curavino Metrics";
+const PANEL_NAME = "Curavino Intelligence Suite";
 
 function maskEmail(value: string | null | undefined): string {
   const email = String(value || "").trim();
@@ -52,12 +52,14 @@ type Props = {
   initialError?: string | null;
   authChecking?: boolean;
   onPasswordLoginSuccess?: (session: Session | null) => Promise<void> | void;
+  onLocalLogin?: () => void;
 };
 
 export default function Login({
   initialError = null,
   authChecking = false,
   onPasswordLoginSuccess,
+  onLocalLogin,
 }: Props) {
   const authConfigError = getSupabaseBootstrapError();
   const [passwordLoading, setPasswordLoading] = useState(false);
@@ -141,7 +143,7 @@ export default function Login({
         userId: data.session?.user?.id || null,
       });
 
-      setInfo("Login realizado com sucesso. Carregando o painel da Mugô...");
+      setInfo("Login realizado com sucesso. Carregando o painel da Curavino...");
       await onPasswordLoginSuccess?.(data.session ?? null);
     } catch (error: unknown) {
       const message = withEmailHint(toErrorMessage(error));
@@ -158,11 +160,19 @@ export default function Login({
   const authUnavailable = Boolean(authConfigError);
   const inputDisabled = passwordLoading || authChecking || authUnavailable;
   const visibleError = err || authConfigError;
+  const localAuthAvailable = isLocalAuthAvailable();
+
+  function handleLocalLogin() {
+    enableLocalAuth();
+    setErr(null);
+    setInfo("Modo local ativo. Abrindo o painel da Curavino...");
+    onLocalLogin?.();
+  }
 
   return (
     <div className="loginPage">
       <div className="loginShell">
-        <section className="loginBrandPanel" aria-label="Apresentacao da marca Mugô">
+        <section className="loginBrandPanel" aria-label="Apresentacao da marca Curavino">
           <div className="loginBrandTopLogo">
             <video
               className="loginTopLogo"
@@ -181,14 +191,12 @@ export default function Login({
             <div className="loginBrandEyebrow">{PANEL_NAME}</div>
             <h1>{PRODUCT_NAME}</h1>
             <p className="loginBrandLead">
-              Acesso reservado ao ambiente analitico da Mugô, com leitura consolidada
-              de performance, midia e operacao.
+              Painel analítico da Curavino para leitura de performance, mídia e operação.
             </p>
           </div>
 
           <div className="loginBrandTags" aria-hidden="true">
             <span>META</span>
-            <span>SHOPIFY</span>
             <span>GOOGLE / GA4</span>
           </div>
         </section>
@@ -198,7 +206,7 @@ export default function Login({
             
             <h2 className="loginTitle">Entrar no workspace</h2>
             <p className="loginSubtitle">
-              Use seu acesso enviado pela Mugô para abrir o painel privado.
+              Use seu acesso enviado pela Curavino para abrir o painel privado.
             </p>
 
             {visibleError ? <div className="loginError">{visibleError}</div> : null}
@@ -212,7 +220,7 @@ export default function Login({
                 <input
                   id="email"
                   type="email"
-                  placeholder="voce@mugo.com.br"
+                  placeholder="mugo.agencia@gmail.com"
                   autoComplete="email"
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
@@ -245,6 +253,17 @@ export default function Login({
                     : "Entrar no painel"}
               </button>
             </form>
+
+            {localAuthAvailable ? (
+              <button
+                className="loginLocalButton"
+                type="button"
+                onClick={handleLocalLogin}
+                disabled={passwordLoading || authChecking}
+              >
+                Entrar em modo local
+              </button>
+            ) : null}
 
             <div className="loginHint">
               Usuarios e senhas precisam ser provisionados no Supabase Auth antes do

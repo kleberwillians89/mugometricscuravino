@@ -5,14 +5,14 @@ from fastapi import HTTPException
 
 from .auth import get_user_id_from_bearer
 from .ig_supabase import sb_get_client_id_for_user, sb_get_client_memberships, sb_get_connection_for_client
-from .single_tenant import get_roove_client_id
+from .single_tenant import get_known_single_tenant_client_ids
 
 
 def _is_true(value: str) -> bool:
     return (value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _can_bypass_roove_membership_in_dev(requested_client_id: Optional[str]) -> bool:
+def _can_bypass_single_tenant_membership_in_dev(requested_client_id: Optional[str]) -> bool:
     if not _is_true(os.getenv("ALLOW_NO_AUTH", "")):
         return False
 
@@ -20,11 +20,11 @@ def _can_bypass_roove_membership_in_dev(requested_client_id: Optional[str]) -> b
     if not requested:
         return False
 
-    try:
-        return requested == get_roove_client_id()
-    except Exception as exc:
-        print(f"[tenant] roove_dev_bypass_unavailable reason={exc.__class__.__name__}")
-        return False
+    return requested in get_known_single_tenant_client_ids()
+
+
+def _local_dev_user_id() -> str:
+    return (os.getenv("DEV_USER_ID") or "").strip() or "local-dev-user"
 
 
 async def require_user_id(authorization: Optional[str]) -> str:
@@ -34,9 +34,12 @@ async def require_user_id(authorization: Optional[str]) -> str:
 
     # Modo local/dev: permite usar API sem JWT
     if _is_true(os.getenv("ALLOW_NO_AUTH", "")):
-        dev_user_id = (os.getenv("DEV_USER_ID") or "").strip()
-        if dev_user_id:
-            return dev_user_id
+        dev_user_id = _local_dev_user_id()
+        print(
+            "[tenant][auth_bypass] "
+            f"allow_no_auth=1 reason=missing_or_invalid_bearer user_id={dev_user_id}"
+        )
+        return dev_user_id
 
     if not user_id:
         raise HTTPException(status_code=401, detail="Autenticação obrigatória")
@@ -50,6 +53,13 @@ async def resolve_client_id(client_id: Optional[str], authorization: Optional[st
     """
     user_id = await require_user_id(authorization)
     requested = (client_id or "").strip() or "-"
+    if _can_bypass_single_tenant_membership_in_dev(client_id):
+        resolved_client_id = (client_id or "").strip()
+        print(
+            f"[tenant] dev_bypass user_id={user_id} requested_client_id={requested} "
+            f"resolved_client_id={resolved_client_id} source=allow_no_auth_single_tenant"
+        )
+        return resolved_client_id
     try:
         resolved = await sb_get_client_id_for_user(user_id, requested_client_id=client_id)
         source = "explicit" if (client_id or "").strip() else "default_single_membership"
@@ -59,13 +69,13 @@ async def resolve_client_id(client_id: Optional[str], authorization: Optional[st
         )
         return resolved
     except PermissionError as exc:
-        if _can_bypass_roove_membership_in_dev(client_id):
-            roove_client_id = get_roove_client_id()
+        if _can_bypass_single_tenant_membership_in_dev(client_id):
+            resolved_client_id = (client_id or "").strip()
             print(
                 f"[tenant] dev_bypass user_id={user_id} requested_client_id={requested} "
-                f"resolved_client_id={roove_client_id} source=allow_no_auth_roove"
+                f"resolved_client_id={resolved_client_id} source=allow_no_auth_single_tenant"
             )
-            return roove_client_id
+            return resolved_client_id
         print(f"[tenant] denied user_id={user_id} requested_client_id={requested}")
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 

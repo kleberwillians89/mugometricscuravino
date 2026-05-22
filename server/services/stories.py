@@ -7,7 +7,7 @@ from typing import Any, Dict, Optional
 from .connection_resolver import resolve_connection_for_scope
 from .ig_supabase import sb_get_one
 from .meta_tokens import ensure_valid_meta_token
-from .ig_meta import fetch_stories
+from .ig_meta import fetch_stories, fetch_story_insights
 
 
 def _parse_date(value: str | None) -> date | None:
@@ -102,10 +102,26 @@ async def get_stories(
         since, until = _resolve_period(days=days, start=start, end=end)
         stories = await fetch_stories(ig_user_id, token, limit=safe_limit)
         filtered = [story for story in stories if _story_in_range(story, since, until)]
+        warnings: list[str] = []
+        enriched = []
+        for story in filtered:
+            story_id = str(story.get("id") or "").strip()
+            if not story_id:
+                enriched.append(story)
+                continue
+            try:
+                enriched.append({**story, "insights": await fetch_story_insights(story_id, token)})
+            except Exception as exc:
+                print(
+                    "[stories][insights_warning] "
+                    f"client_id={client_id} story_id={story_id} error={exc.__class__.__name__}"
+                )
+                warnings.append("Insights de stories ainda não disponíveis para esta conta.")
+                enriched.append(story)
         print(
             "[stories] result "
             f"client_id={client_id} connection_id={resolved_connection_id or '-'} "
-            f"stories={len(filtered)} limit={safe_limit} "
+            f"stories={len(enriched)} limit={safe_limit} "
             f"start={since.isoformat()} end={until.isoformat()} "
             f"duration_ms={int((time.perf_counter() - started) * 1000)}"
         )
@@ -114,7 +130,8 @@ async def get_stories(
             "available": True,
             "client_id": client_id,
             "connection_id": resolved_connection_id or None,
-            "stories": filtered,
+            "stories": enriched,
+            "warnings": sorted(set(warnings)),
         }
     except Exception as exc:
         print(
@@ -129,6 +146,5 @@ async def get_stories(
             "client_id": client_id,
             "connection_id": resolved_connection_id or None,
             "message": "Stories indisponíveis nesta conta/permissão da API Instagram Graph.",
-            "error": str(exc)[:250],
             "stories": [],
         }

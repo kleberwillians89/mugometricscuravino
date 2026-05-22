@@ -18,6 +18,7 @@ from api_support import (
     _validated_connection_id,
 )
 from services.clients import connect_meta_for_client, create_client_for_user, list_clients_for_user
+from services.connection_resolver import resolve_connection_for_scope
 from services.cron_jobs import (
     run_daily_instagram_refresh,
     run_daily_instagram_sync,
@@ -25,6 +26,7 @@ from services.cron_jobs import (
     run_token_refresh_job,
 )
 from services.ig_refresh import refresh_all
+from services.instagram_sync import discover_instagram_identity_for_connection
 from services.job_runs import finish_job_run, list_job_runs, start_job_run
 from services.meta_oauth import (
     build_frontend_callback_redirect,
@@ -59,6 +61,8 @@ META_LEGACY_ENDPOINTS = [
     "POST /api/meta/connections/{connection_id}/refresh-token",
     "DELETE /api/clients/{client_id}/connections/{connection_id}",
     "POST /api/ig/refresh_all",
+    "POST /api/ig/sync",
+    "GET /api/ig/debug/identity",
     "POST /api/cron/token_refresh",
     "POST /api/cron/organic_sync",
     "POST /api/cron/paid_sync",
@@ -434,7 +438,7 @@ async def api_refresh_all(
             },
             "media": [],
             "comments_saved": 0,
-            "warnings": [f"refresh_failed: {str(exc)[:220]}"],
+            "warnings": ["Métricas orgânicas ainda não disponíveis para esta conexão."],
         }
     except Exception as exc:
         return {
@@ -452,7 +456,71 @@ async def api_refresh_all(
             },
             "media": [],
             "comments_saved": 0,
-            "warnings": [f"refresh_failed: {str(exc)[:220]}"],
+            "warnings": ["Métricas orgânicas ainda não disponíveis para esta conexão."],
+        }
+
+
+@router.post("/api/ig/sync")
+async def api_instagram_sync(
+    client_id: str | None = None,
+    x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+    limit: int = Query(40, ge=1, le=200),
+    connection_id: str | None = Query(default=None),
+    start: str | None = Query(default=None),
+    end: str | None = Query(default=None),
+    authorization: str | None = Header(default=None),
+):
+    return await api_refresh_all(
+        client_id=client_id,
+        x_client_id=x_client_id,
+        limit=limit,
+        connection_id=connection_id,
+        start=start,
+        end=end,
+        authorization=authorization,
+    )
+
+
+@router.get("/api/ig/debug/identity")
+async def api_instagram_debug_identity(
+    client_id: str | None = None,
+    x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+    connection_id: str | None = Query(default=None),
+    authorization: str | None = Header(default=None),
+):
+    cid = await resolve_client_id(_pick_client_id(client_id, x_client_id), authorization)
+    validated_connection_id = await _validated_connection_id(
+        client_id=cid,
+        connection_id=connection_id,
+        authorization=authorization,
+    )
+    if not validated_connection_id:
+        resolved = await resolve_connection_for_scope(
+            client_id=cid,
+            platform="instagram",
+            connection_type="organic",
+        )
+        validated_connection_id = str(resolved.get("connection_id") or "").strip() or None
+        if not validated_connection_id:
+            return {
+                "ok": False,
+                "client_id": cid,
+                "message": "Instagram orgânico ainda não conectado.",
+                "instagram_accounts": [],
+            }
+    try:
+        return await discover_instagram_identity_for_connection(validated_connection_id)
+    except Exception as exc:
+        print(
+            "[api_ig_debug_identity] error "
+            f"client_id={cid} connection_id={validated_connection_id} error={str(exc)[:280]}"
+        )
+        return {
+            "ok": False,
+            "client_id": cid,
+            "connection_id": validated_connection_id,
+            "message": "Conta Instagram Business ainda não vinculada à página Meta.",
+            "instagram_accounts": [],
         }
 
 

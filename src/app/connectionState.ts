@@ -1,4 +1,4 @@
-const ACTIVE_CONNECTION_KEY = "roove.active_connection_id";
+const ACTIVE_CONNECTION_KEY = "curavino.active_connection_id";
 
 export function getActiveConnectionId(): string | null {
   try {

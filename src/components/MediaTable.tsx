@@ -5,6 +5,7 @@ import { memo, useMemo, useState } from "react";
 function badge(mediaType?: string, productType?: string) {
   const pt = (productType || "").toUpperCase();
   if (pt === "REELS") return <span className="badge badgeReels">REEL</span>;
+  if (pt === "STORY") return <span className="badge badgeStory">STORY</span>;
   const mt = (mediaType || "").toUpperCase();
   if (mt === "CAROUSEL_ALBUM") return <span className="badge badgeFeed">CAROUSEL</span>;
   return <span className="badge badgeFeed">POST</span>;
@@ -13,6 +14,7 @@ function badge(mediaType?: string, productType?: string) {
 function labelMediaType(mediaType?: string, productType?: string) {
   const pt = (productType || "").toUpperCase();
   if (pt === "REELS") return "Reels";
+  if (pt === "STORY") return "Story";
 
   const mt = (mediaType || "").toUpperCase();
   if (mt === "CAROUSEL_ALBUM") return "Carrossel";
@@ -124,7 +126,50 @@ function MediaTable({ media }: { media: IgMediaItem[] }) {
   );
 
   return (
-    <div className="tableWrap">
+    <>
+      <div className="organicMediaShelfIntro">
+        <div className="h1">Conteúdo orgânico</div>
+        <div className="p">Prévia visual dos posts, reels e stories disponíveis no período.</div>
+      </div>
+      <div className="organicMediaShelf" aria-label="Últimos reels e posts orgânicos">
+        {rows.slice(0, 8).map((m) => {
+          const ins: Record<string, unknown> = m.insights || {};
+          const typeLabel = labelMediaType(m.media_type, m.media_product_type);
+          const caption = String(m.caption || "").replace(/\s+/g, " ").trim();
+          const date = m.timestamp ? new Date(m.timestamp).toLocaleDateString("pt-BR") : "Sem data";
+          return (
+            <article className="organicMediaCard" key={`card-${m.id}`}>
+              <div className="organicMediaPreview">
+                <MediaThumb
+                  src={m.thumb_url || m.thumbnail_url || m.media_url}
+                  permalink={m.permalink}
+                  alt={typeLabel}
+                />
+              </div>
+              <div className="organicMediaCardBody">
+                <div className="organicMediaCardHead">
+                  {badge(m.media_type, m.media_product_type)}
+                  <span>{date}</span>
+                </div>
+                <div className="organicMediaCaption">
+                  {caption || "Conteúdo orgânico da Curavino"}
+                </div>
+                <div className="organicMediaStats">
+                  <span>Alcance <strong>{num(ins["reach"] as number | undefined)}</strong></span>
+                  <span>Interações <strong>{num(ins["total_interactions"] as number | undefined)}</strong></span>
+                  <span>Comentários <strong>{num(ins["comments"] as number | undefined)}</strong></span>
+                </div>
+                {m.permalink ? (
+                  <a className="organicMediaLink" href={m.permalink} target="_blank" rel="noreferrer">
+                    Ver no Instagram
+                  </a>
+                ) : null}
+              </div>
+            </article>
+          );
+        })}
+      </div>
+      <div className="tableWrap">
       <div className="tableScroller">
         <table className="mediaTable">
           <thead>
@@ -152,7 +197,11 @@ function MediaTable({ media }: { media: IgMediaItem[] }) {
                 <tr key={m.id}>
                   <td>
                     <div className="mediaThumbWrap">
-                      <MediaThumb src={m.thumb_url} permalink={m.permalink} alt={typeLabel} />
+                      <MediaThumb
+                        src={m.thumb_url || m.thumbnail_url || m.media_url}
+                        permalink={m.permalink}
+                        alt={typeLabel}
+                      />
                     </div>
                   </td>
                   <td>{badge(m.media_type, m.media_product_type)}</td>
@@ -170,7 +219,8 @@ function MediaTable({ media }: { media: IgMediaItem[] }) {
           </tbody>
         </table>
       </div>
-    </div>
+      </div>
+    </>
   );
 }
 

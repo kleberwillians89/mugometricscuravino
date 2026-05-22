@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  disconnectRooveConnection,
-  discoverRooveMetaAssets,
-  linkRooveAssets,
-  listRooveConnections,
-  startRooveMetaOAuth,
+  disconnectCuravinoConnection,
+  discoverCuravinoMetaAssets,
+  linkCuravinoAssets,
+  listCuravinoConnections,
+  startCuravinoMetaOAuth,
 } from "../app/api";
 import {
   getActiveConnectionId,
@@ -17,12 +17,12 @@ import type {
   MetaDiscoveredInstagramAsset,
 } from "../app/types";
 import {
-  getRooveClientConfigurationWarning,
+  getCuravinoClientConfigurationWarning,
   ROOVE_APP_NAME,
   ROOVE_CLIENT_ID,
   ROOVE_CLIENT_NAME,
-} from "../app/roove";
-import logo from "../assets/roove-logo.svg";
+} from "../app/curavino";
+import logo from "../assets/curavino-logo.svg";
 import "../styles/onboarding.css";
 
 type Props = {
@@ -80,7 +80,7 @@ function connectionLabel(connection: MetaConnection): string {
   const adAccountId = String(connection.ad_account_id || "").trim();
   if (adAccountId) return `Conta Ads ${adAccountId.replace(/^act_/, "").slice(-6)}`;
 
-  return "Conexao da Roove";
+  return "Conexao da Curavino";
 }
 
 function pickDefaultOrganicConnectionId(
@@ -123,10 +123,10 @@ export default function Onboarding({
   const [selectedIg, setSelectedIg] = useState<Record<string, boolean>>({});
   const [selectedAds, setSelectedAds] = useState<Record<string, boolean>>({});
 
-  const configWarning = getRooveClientConfigurationWarning();
+  const configWarning = getCuravinoClientConfigurationWarning();
 
   const loadConnections = useCallback(async () => {
-    const response = await listRooveConnections();
+    const response = await listCuravinoConnections();
     const nextConnections = response.connections || [];
     setConnections(nextConnections);
 
@@ -168,7 +168,7 @@ export default function Onboarding({
 
     try {
       if (clientFromCallback && clientFromCallback !== ROOVE_CLIENT_ID) {
-        throw new Error("O callback recebido nao corresponde ao client_id fixo da Roove.");
+        throw new Error("O callback recebido nao corresponde ao client_id fixo da Curavino.");
       }
 
       if (oauthStatus === "error") {
@@ -176,7 +176,7 @@ export default function Onboarding({
       }
 
       if (oauthStatus === "success" && handoff) {
-        const data = await discoverRooveMetaAssets(handoff);
+        const data = await discoverCuravinoMetaAssets(handoff);
         setPendingAssets(data);
 
         const igMap: Record<string, boolean> = {};
@@ -194,7 +194,7 @@ export default function Onboarding({
         setSelectedIg(igMap);
         setSelectedAds(adMap);
         await loadConnections();
-        setInfo("Autorizacao concluida. Revise os ativos da Roove e finalize o vinculo.");
+        setInfo("Autorizacao concluida. Revise os ativos da Curavino e finalize o vinculo.");
       }
     } catch (error: unknown) {
       setErr(errorMessage(error, "Falha ao processar o retorno do OAuth."));
@@ -215,7 +215,7 @@ export default function Onboarding({
         await handleOauthRedirectParams();
       } catch (error: unknown) {
         if (!alive) return;
-        setErr(errorMessage(error, "Erro ao carregar as integracoes da Roove."));
+        setErr(errorMessage(error, "Erro ao carregar as integracoes da Curavino."));
       } finally {
         if (alive) {
           setLoading(false);
@@ -257,14 +257,14 @@ export default function Onboarding({
     setOauthLoading(true);
 
     try {
-      const response = await startRooveMetaOAuth();
+      const response = await startCuravinoMetaOAuth();
       const authorizationUrl = String(response.authorization_url || "").trim();
       if (!authorizationUrl) {
         throw new Error("A integracao nao retornou URL de autorizacao.");
       }
       window.location.assign(authorizationUrl);
     } catch (error: unknown) {
-      setErr(errorMessage(error, "Erro ao iniciar a integracao da Roove."));
+      setErr(errorMessage(error, "Erro ao iniciar a integracao da Curavino."));
       setOauthLoading(false);
     }
   }
@@ -300,7 +300,7 @@ export default function Onboarding({
     setInfo(null);
 
     try {
-      await linkRooveAssets({
+      await linkCuravinoAssets({
         handoff: pendingAssets.handoff,
         instagram_ig_user_ids: instagramIds,
         ad_account_ids: adAccountIds,
@@ -309,9 +309,9 @@ export default function Onboarding({
       setSelectedIg({});
       setSelectedAds({});
       await loadConnections();
-      setInfo("Ativos da Roove vinculados com sucesso.");
+      setInfo("Ativos da Curavino vinculados com sucesso.");
     } catch (error: unknown) {
-      setErr(errorMessage(error, "Erro ao vincular os ativos da Roove."));
+      setErr(errorMessage(error, "Erro ao vincular os ativos da Curavino."));
     } finally {
       setSaving(false);
     }
@@ -323,7 +323,7 @@ export default function Onboarding({
     setInfo(null);
 
     try {
-      await disconnectRooveConnection(connection.id);
+      await disconnectCuravinoConnection(connection.id);
       await loadConnections();
       setInfo(`Conexao "${connectionLabel(connection)}" desconectada.`);
     } catch (error: unknown) {
@@ -341,7 +341,7 @@ export default function Onboarding({
 
   async function onContinue() {
     if (!dashboardReady) {
-      setErr("Conecte a integracao organica da Roove antes de abrir o dashboard.");
+      setErr("Conecte a integracao organica da Curavino antes de abrir o dashboard.");
       return;
     }
     await onCompleted?.();
@@ -358,7 +358,7 @@ export default function Onboarding({
           <img src={logo} alt={ROOVE_CLIENT_NAME} className="onboardingLogo" />
           <div>
             <div className="onboardingTitle">{ROOVE_APP_NAME}</div>
-            <div className="onboardingSub">Setup unico da Roove para integracoes e dados.</div>
+            <div className="onboardingSub">Setup unico da Curavino para integracoes e dados.</div>
           </div>
         </div>
         <button className="btn btnGhost" type="button" onClick={() => void onLogout?.()}>
@@ -369,9 +369,9 @@ export default function Onboarding({
       <main className="onboardingWrap">
         <section className="onboardingHero">
           <div>
-            <h1>Integração da Roove</h1>
+            <h1>Integração da Curavino</h1>
             <p>
-              Esta etapa existe apenas para conectar e revisar os dados da Roove. Nao ha mais criacao,
+              Esta etapa existe apenas para conectar e revisar os dados da Curavino. Nao ha mais criacao,
               escolha ou troca de clientes neste frontend.
             </p>
           </div>
@@ -398,7 +398,7 @@ export default function Onboarding({
               <div className="h1">Cliente fixo da aplicação</div>
               <div className="p">
                 Todas as chamadas autenticadas usam o client_id fixo da {ROOVE_CLIENT_NAME},
-                resolvido a partir de <code>VITE_DEFAULT_CLIENT_ID</code>.
+                resolvido a partir de <code>VITE_CURAVINO_CLIENT_ID</code>.
               </div>
             </div>
             <div className="pill pillSoft">{ROOVE_CLIENT_NAME}</div>
@@ -408,7 +408,7 @@ export default function Onboarding({
         <div className="onboardingConnections">
           <div className="onboardingConnBlock">
             <div className="h1">Fonte principal do dashboard</div>
-            <div className="p">A conexao organica da Roove libera os KPIs, comentarios, media e stories.</div>
+            <div className="p">A conexao organica da Curavino libera os KPIs, comentarios, media e stories.</div>
             <div className={`pill ${dashboardReady ? "pillSoft" : "pillDanger"}`} style={{ marginTop: 10 }}>
               {dashboardReady
                 ? `Ativa: ${connectionLabel(activeOrganicConnection || organicConnections[0]!)}` 
@@ -422,8 +422,7 @@ export default function Onboarding({
           <div className="onboardingConnBlock">
             <div className="h1">Fontes adicionais</div>
             <div className="p">
-              O frontend ja suporta a stack atual de Instagram e Meta Ads da Roove. Shopify continua
-              dependendo de endpoints dedicados no backend.
+              O frontend local usa a stack atual de Instagram, Meta Ads e Google Analytics da Curavino.
             </div>
             <div className={`pill ${paidConnections.length ? "pillSoft" : "pillDanger"}`} style={{ marginTop: 10 }}>
               {paidConnections.length
@@ -442,7 +441,7 @@ export default function Onboarding({
               <div>
                 <div className="h1">Vincular ativos autorizados</div>
                 <div className="p">
-                  Revise os ativos descobertos para a Roove e confirme o que deve ficar disponivel no painel.
+                  Revise os ativos descobertos para a Curavino e confirme o que deve ficar disponivel no painel.
                 </div>
               </div>
             </div>
@@ -518,7 +517,7 @@ export default function Onboarding({
 
             <div className="onboardingHeroActions" style={{ marginTop: 16 }}>
               <button className="btn btnPrimary" type="button" onClick={() => void onLinkSelectedAssets()} disabled={saving}>
-                {saving ? "Vinculando..." : "Vincular ativos da Roove"}
+                {saving ? "Vinculando..." : "Vincular ativos da Curavino"}
               </button>
               <button
                 className="btn btnGhost"
@@ -547,11 +546,11 @@ export default function Onboarding({
 
           {loading ? (
             <div className="smallMuted" style={{ marginTop: 12 }}>
-              Carregando integracoes da Roove...
+              Carregando integracoes da Curavino...
             </div>
           ) : !connections.length ? (
             <div className="smallMuted" style={{ marginTop: 12 }}>
-              Nenhuma integracao cadastrada ainda para a Roove.
+              Nenhuma integracao cadastrada ainda para a Curavino.
             </div>
           ) : (
             <div className="onboardingConnList" style={{ marginTop: 10 }}>

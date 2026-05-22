@@ -41,6 +41,7 @@ async def _run(args: argparse.Namespace) -> Any:
             since=args.since,
             until=args.until,
             days=args.days,
+            client_id=args.client_id,
             job_name="ga4_sync_cli",
             trigger_source="manual_cli",
             record_job_run=True,
@@ -70,7 +71,8 @@ def _build_parser() -> argparse.ArgumentParser:
     backfill.add_argument("--until", required=True, help="Data final no formato YYYY-MM-DD.")
     backfill.add_argument("--connection-id", default=None, help="Connection ID opcional para travar a execução.")
 
-    ga4_sync = sub.add_parser("ga4-sync", help="Roda ingestão manual do GA4 para a Roove.")
+    ga4_sync = sub.add_parser("ga4-sync", help="Roda ingestão manual do GA4.")
+    ga4_sync.add_argument("--client-id", default=None, help="Client ID opcional. Sem valor, usa Curavino como padrão local.")
     ga4_sync.add_argument("--since", default=None, help="Data inicial no formato YYYY-MM-DD.")
     ga4_sync.add_argument("--until", default=None, help="Data final no formato YYYY-MM-DD.")
     ga4_sync.add_argument("--days", type=int, default=30, help="Janela padrão em dias quando since/until não forem informados.")

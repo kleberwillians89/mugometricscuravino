@@ -1,17 +1,21 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
-import { getSupabaseBootstrapError, supabase } from "./app/supabase";
-import { listRooveConnections } from "./app/api";
+import {
+  disableLocalAuth,
+  getSupabaseBootstrapError,
+  isLocalAuthEnabled,
+  supabase,
+} from "./app/supabase";
+import { listCuravinoConnections } from "./app/api";
 import {
   getCurrentAppRoute,
   navigateToAppRoute,
   type AppRoute,
 } from "./app/routes";
-import { ROOVE_APP_NAME } from "./app/roove";
+import { ROOVE_APP_NAME } from "./app/curavino";
 import Login from "./pages/Login";
 import Onboarding from "./pages/Onboarding";
 import Dashboard from "./pages/Dashboard";
-import Shopify from "./pages/Shopify";
 import GoogleAnalytics from "./pages/GoogleAnalytics";
 import DashboardErrorBoundary from "./components/dashboard/DashboardErrorBoundary";
 
@@ -87,7 +91,7 @@ function clearSetupUrlParams() {
 function toErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message) return error.message;
   if (typeof error === "string" && error.trim()) return error;
-  return "Erro ao carregar a configuracao da Roove.";
+  return "Erro ao carregar a configuracao da Curavino.";
 }
 
 function AppLoading() {
@@ -113,6 +117,7 @@ export default function App() {
   const [route, setRoute] = useState<AppRoute>(() => getCurrentAppRoute());
   const [bootError, setBootError] = useState<string | null>(authBootstrapError);
   const [authInitializing, setAuthInitializing] = useState(true);
+  const [localMode, setLocalMode] = useState(() => isLocalAuthEnabled());
 
   const isOrganicConnection = useCallback(
     (connection: { platform?: string | null; connection_type?: string | null; status?: string | null }) => {
@@ -127,7 +132,7 @@ export default function App() {
   const resolveAuthenticatedView = useCallback(
     async (candidateSession?: Session | null, requestedRoute: AppRoute = route) => {
       const activeSession = candidateSession ?? session;
-      if (!activeSession) {
+      if (!activeSession && !localMode) {
         authDebug("route.decision", {
           target: "login",
           reason: "missing_session",
@@ -139,7 +144,7 @@ export default function App() {
       setView("loading");
       setBootError(null);
 
-      if (requestedRoute === "shopify" || requestedRoute === "google") {
+      if (requestedRoute === "google") {
         authDebug("route.decision", {
           target: requestedRoute,
           reason: `authenticated_${requestedRoute}_report`,
@@ -150,7 +155,7 @@ export default function App() {
 
       try {
         const setupRequestedFromUrl = hasSetupSignalInUrl();
-        const connectionsRes = await listRooveConnections();
+        const connectionsRes = await listCuravinoConnections();
         const connections = connectionsRes.connections || [];
         const hasActiveOrganicConnection = connections.some(isOrganicConnection);
 
@@ -167,7 +172,7 @@ export default function App() {
         if (!hasActiveOrganicConnection) {
           authDebug("route.decision", {
             target: "dashboard",
-            reason: "authenticated_without_active_roove_connection",
+            reason: "authenticated_without_active_curavino_connection",
             connectionsCount: connections.length,
           });
           setView("dashboard");
@@ -176,7 +181,7 @@ export default function App() {
 
         authDebug("route.decision", {
           target: "dashboard",
-          reason: "authenticated_with_active_roove_connection",
+            reason: "authenticated_with_active_curavino_connection",
           connectionsCount: connections.length,
         });
         setView("dashboard");
@@ -191,7 +196,7 @@ export default function App() {
         setView("dashboard");
       }
     },
-    [isOrganicConnection, route, session]
+    [isOrganicConnection, localMode, route, session]
   );
 
   useEffect(() => {
@@ -201,6 +206,15 @@ export default function App() {
     const bootstrapAuth = async () => {
       const callbackSignal = hasSupabaseCallbackSignalInUrl();
       authDebug("bootstrap.start", { callbackSignalInUrl: callbackSignal });
+
+      if (localMode) {
+        if (!mounted) return;
+        setSession(null);
+        setBootError(null);
+        setView("dashboard");
+        setAuthInitializing(false);
+        return;
+      }
 
       if (!authClient || authBootstrapError) {
         authDebug("bootstrap.config_error", {
@@ -291,7 +305,7 @@ export default function App() {
       mounted = false;
       sub.subscription.unsubscribe();
     };
-  }, []);
+  }, [localMode]);
 
   useEffect(() => {
     const handlePopState = () => {
@@ -309,12 +323,16 @@ export default function App() {
       setView("loading");
       return;
     }
+    if (localMode) {
+      setView("dashboard");
+      return;
+    }
     if (!session) {
       setView("login");
       return;
     }
     void resolveAuthenticatedView(session, route);
-  }, [authInitializing, resolveAuthenticatedView, route, session]);
+  }, [authInitializing, localMode, resolveAuthenticatedView, route, session]);
 
   const openRoute = useCallback(
     (nextRoute: AppRoute) => {
@@ -325,6 +343,16 @@ export default function App() {
   );
 
   async function handleLogout() {
+    if (localMode) {
+      disableLocalAuth();
+      setLocalMode(false);
+      clearSetupUrlParams();
+      setSession(null);
+      setBootError(null);
+      setAuthInitializing(false);
+      setView("login");
+      return;
+    }
     if (!supabase) {
       authDebug("logout", { cleared: true, mode: "no_supabase_client" });
       clearSetupUrlParams();
@@ -359,16 +387,25 @@ export default function App() {
     [resolveAuthenticatedView, route, session]
   );
 
+  const handleLocalLogin = useCallback(() => {
+    setLocalMode(true);
+    setBootError(null);
+    setSession(null);
+    setAuthInitializing(false);
+    setView("dashboard");
+  }, []);
+
   if (view === "loading") {
     return <AppLoading />;
   }
 
-  if (view === "login" || !session) {
+  if (view === "login" || (!session && !localMode)) {
     return (
       <Login
         initialError={bootError}
         authChecking={authInitializing}
         onPasswordLoginSuccess={handlePasswordLoginSuccess}
+        onLocalLogin={handleLocalLogin}
       />
     );
   }
@@ -386,27 +423,19 @@ export default function App() {
 
   return (
     <DashboardErrorBoundary>
-      {route === "shopify" ? (
-        <Shopify
-          onLogout={handleLogout}
-          onOpenDashboard={() => openRoute("dashboard")}
-          onOpenGoogleReport={() => openRoute("google")}
-        />
-      ) : route === "google" ? (
+      {route === "google" ? (
         <GoogleAnalytics
-          isAuthenticated={!!session}
+          isAuthenticated={!!session || localMode}
           onLogout={handleLogout}
           onOpenDashboard={() => openRoute("dashboard")}
-          onOpenShopifyReport={() => openRoute("shopify")}
         />
       ) : (
         <Dashboard
           onLogout={handleLogout}
-          isAuthenticated={!!session}
+          isAuthenticated={!!session || localMode}
           bootstrapError={bootError}
           onOpenSetup={() => setView("setup")}
           onOpenGoogleAnalytics={() => openRoute("google")}
-          onOpenShopifyReport={() => openRoute("shopify")}
         />
       )}
     </DashboardErrorBoundary>

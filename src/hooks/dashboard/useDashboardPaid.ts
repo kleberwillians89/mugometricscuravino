@@ -71,6 +71,9 @@ export default function useDashboardPaid({
       if (cachedInitial) {
         setPaidData(cachedInitial);
         dataRef.current = cachedInitial;
+      } else {
+        setPaidData(null);
+        dataRef.current = null;
       }
       setPaidError(null);
       return;

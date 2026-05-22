@@ -68,14 +68,13 @@ function StoriesPanel({
   refreshing = false,
   error = null,
   storiesAvailable,
-  storiesMessage,
   updatedAtLabel = null,
   onRetry,
 }: Props) {
   const safeStories = arrayOrEmpty<StoryItem>(stories);
   const hasStories = safeStories.length > 0;
   const safeStoriesAvailable = storiesAvailable || hasStories;
-  const showUnavailable = !loading && !hasStories && (!safeStoriesAvailable || Boolean(error));
+  const showUnavailable = !loading && !hasStories && !safeStoriesAvailable;
   const pillClass = loading || refreshing || safeStoriesAvailable ? "pillSoft" : "pillDanger";
   const pillLabel = loading
     ? "Carregando..."
@@ -100,10 +99,10 @@ function StoriesPanel({
 
       {showUnavailable ? (
         <MetaStateNotice
-          title="Stories indisponíveis"
-          description="A API de stories pode oscilar por permissão, token ou falha transitória."
-          tone="unavailable"
-          message={storiesMessage || error || "Os stories não puderam ser carregados agora."}
+          title="Stories ainda não sincronizados"
+          description="Quando a leitura orgânica retornar stories, eles aparecem neste bloco."
+          tone="empty"
+          message="Stories ainda não sincronizados."
           secondaryMessage="O restante da leitura da Meta continua disponível."
           actionLabel={onRetry ? "Tentar novamente" : undefined}
           onAction={onRetry}
@@ -139,17 +138,17 @@ function StoriesPanel({
         ) : (
           <MetaStateNotice
             title="Sem stories no período"
-            description="A conta continua conectada; só não houve stories retornados para esse recorte."
+            description="A conta está disponível e não retornou stories para esse recorte."
             tone="empty"
-            message={storiesMessage || "Nenhum story retornado no momento."}
+            message="Sem dados no período."
           />
         )
       ) : (
         <MetaStateNotice
-          title="Stories indisponíveis"
-          description="Esse bloco pode falhar isoladamente sem derrubar a página."
-          tone="unavailable"
-          message={storiesMessage || "Stories indisponíveis nesta conta/permissão."}
+          title="Stories ainda não sincronizados"
+          description="Esse bloco aparece assim até a sincronização orgânica trazer stories."
+          tone="empty"
+          message="Stories ainda não sincronizados."
           actionLabel={onRetry ? "Tentar novamente" : undefined}
           onAction={onRetry}
         />

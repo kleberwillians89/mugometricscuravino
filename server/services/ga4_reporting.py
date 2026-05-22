@@ -5,7 +5,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, List, Optional
 
 from .ig_supabase import sb_select
-from .single_tenant import get_roove_ga4_property_id
+from .single_tenant import resolve_ga4_context_for_client
 
 GA4_EVENT_GROUPS: Dict[str, Dict[str, Any]] = {
     "behavior": {
@@ -282,8 +282,10 @@ def _normalize_period_filters(
     property_id: str,
     period: GA4ReportPeriod,
 ) -> tuple[str, str, GA4ReportPeriod]:
-    resolved_property_id = _safe_str(property_id) or get_roove_ga4_property_id()
     resolved_client_id = _safe_str(client_id)
+    context_client_id, context_property_id = resolve_ga4_context_for_client(resolved_client_id or None)
+    resolved_client_id = resolved_client_id or context_client_id
+    resolved_property_id = _safe_str(property_id) or context_property_id
     return resolved_client_id, resolved_property_id, period
 
 

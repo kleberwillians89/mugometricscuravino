@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Tuple
 import httpx
 
 from .connection_resolver import resolve_connection_for_scope
-from .ig_supabase import sb_query, sb_select
+from .ig_supabase import sb_select
 
 
 def _resolve_client_id(client_id: str | None) -> str:
@@ -218,14 +218,36 @@ async def _query_snapshot_rows(
     client_id: str,
     since: date,
     until: date,
+    connection_id: str | None = None,
 ) -> List[Dict[str, Any]]:
-    query = (
-        f"client_id=eq.{client_id}"
-        f"&snapshot_date=gte.{since.isoformat()}"
-        f"&snapshot_date=lte.{until.isoformat()}"
-        f"&order=snapshot_date.asc"
-    )
-    return await sb_query("ig_profile_snapshots", query)
+    filters = {
+        "client_id": f"eq.{client_id}",
+        "and": f"(snapshot_date.gte.{since.isoformat()},snapshot_date.lte.{until.isoformat()})",
+    }
+    scoped_connection_id = str(connection_id or "").strip()
+    if scoped_connection_id:
+        filters["connection_id"] = f"eq.{scoped_connection_id}"
+    try:
+        return await sb_select(
+            "ig_profile_snapshots",
+            filters=filters,
+            order="snapshot_date.asc",
+            limit=5000,
+        )
+    except httpx.HTTPStatusError as exc:
+        if not (scoped_connection_id and _is_missing_column_error(exc, "connection_id")):
+            raise
+        filters.pop("connection_id", None)
+        print(
+            "[dashboard][organic][snapshot_schema_pending] "
+            f"client_id={client_id} connection_id={scoped_connection_id} missing=connection_id"
+        )
+        return await sb_select(
+            "ig_profile_snapshots",
+            filters=filters,
+            order="snapshot_date.asc",
+            limit=5000,
+        )
 
 async def get_dashboard(
     client_id: str | None,
@@ -257,7 +279,7 @@ async def get_dashboard(
         f"start={since_iso} end={until_iso} month={str(month or '').strip() or '-'}"
     )
 
-    rows = await _query_snapshot_rows(cid, since_date, until_date)
+    rows = await _query_snapshot_rows(cid, since_date, until_date, resolved_connection_id or None)
 
     media_filters = {
         "client_id": f"eq.{cid}",
@@ -406,6 +428,7 @@ async def get_dashboard(
         cid,
         prev_since_date,
         prev_until_date,
+        resolved_connection_id or None,
     )
     previous_period_totals = _build_period_totals(previous_rows)
     previous_totals = {
@@ -438,6 +461,7 @@ async def get_dashboard(
         cid,
         month_start,
         month_end,
+        resolved_connection_id or None,
     )
     monthly_totals = _sum_snapshot_rows(month_rows)
 
@@ -450,6 +474,7 @@ async def get_dashboard(
         cid,
         last_month_start,
         last_month_end,
+        resolved_connection_id or None,
     )
     last_month_totals = _sum_snapshot_rows(last_month_rows)
 

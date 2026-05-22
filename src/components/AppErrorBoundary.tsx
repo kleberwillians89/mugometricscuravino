@@ -10,7 +10,7 @@ type State = {
 };
 
 const FALLBACK_MESSAGE =
-  "A interface da Roove nao conseguiu iniciar. Revise as variaveis do frontend e tente novamente.";
+  "A interface da Curavino nao conseguiu iniciar. Revise as variaveis do frontend e tente novamente.";
 
 export default class AppErrorBoundary extends Component<Props, State> {
   state: State = {
@@ -52,7 +52,7 @@ export default class AppErrorBoundary extends Component<Props, State> {
           }}
         >
           <div className="pill pillDanger" style={{ marginBottom: 12 }}>
-            Erro ao iniciar a Roove
+            Erro ao iniciar a Curavino
           </div>
           <h1 style={{ margin: "0 0 10px" }}>A aplicacao encontrou um erro em runtime</h1>
           <p style={{ margin: 0, color: "rgba(15, 23, 42, .74)" }}>

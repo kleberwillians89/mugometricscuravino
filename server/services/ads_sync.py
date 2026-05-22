@@ -13,6 +13,7 @@ from .ads_meta import (
     fetch_ad_creatives,
     fetch_entity_insights,
 )
+from .bootstrap import bootstrap_meta_from_env
 from .connection_resolver import resolve_connection_for_scope
 from .job_runs import finish_job_run, start_job_run
 from .meta_http import MetaApiError
@@ -1180,11 +1181,36 @@ async def _pick_paid_connection(
         requested_connection_id=requested,
         require_ad_account=True,
     )
+    if not requested and not _safe_str((resolved.get("row") or {}).get("id")):
+        try:
+            applied = await bootstrap_meta_from_env()
+            print(
+                "[ads_sync][bootstrap] "
+                f"client_id={cid} reason=missing_paid_connection applied={','.join(applied) or '-'}"
+            )
+        except Exception as exc:
+            print(
+                "[ads_sync][bootstrap][warning] "
+                f"client_id={cid} reason=missing_paid_connection error={_safe_str(exc)[:280]}"
+            )
+        resolved = await resolve_connection_for_scope(
+            client_id=cid,
+            platform="meta_ads",
+            connection_type="paid",
+            requested_connection_id=None,
+            require_ad_account=True,
+        )
     conn = dict(resolved.get("row") or {})
     conn_id = _safe_str(conn.get("id"))
     if not conn_id:
         raise RuntimeError("Cliente sem conexão Meta Ads ativa. Conecte e selecione uma conta de anúncio.")
     conn["_resolved_source"] = str(resolved.get("source") or "none").strip() or "none"
+    print(
+        "[ads_sync][paid_connection] "
+        f"client_id={cid} connection_id={conn_id} "
+        f"ad_account_id={_normalize_ad_account_id(_safe_str(conn.get('ad_account_id'))) or '-'} "
+        f"source={conn['_resolved_source']}"
+    )
     return conn
 
 

@@ -260,21 +260,41 @@ async def get_media_monthly(
             limit=10000,
         )
     except httpx.HTTPStatusError as exc:
-        if not (resolved_connection_id and _is_missing_column_error(exc, "connection_id")):
-            raise
-        filters_no_conn = {"client_id": f"eq.{client_id}"}
-        if until_dt:
-            filters_no_conn["and"] = f"(timestamp.gte.{since_dt.isoformat()},timestamp.lte.{until_dt.isoformat()})"
+        schema_pending = (
+            exc.response is not None
+            and exc.response.status_code == 404
+        ) or _is_missing_column_error(exc, "media_product_type") or _is_missing_column_error(exc, "insights_json")
+        if schema_pending:
+            rows = []
+            read_mode = "monthly_schema_pending"
+        elif resolved_connection_id and _is_missing_column_error(exc, "connection_id"):
+            filters_no_conn = {"client_id": f"eq.{client_id}"}
+            if until_dt:
+                filters_no_conn["and"] = f"(timestamp.gte.{since_dt.isoformat()},timestamp.lte.{until_dt.isoformat()})"
+            else:
+                filters_no_conn["timestamp"] = f"gte.{since_dt.isoformat()}"
+            try:
+                rows = await sb_select(
+                    "ig_media",
+                    select="timestamp,media_product_type,insights_json",
+                    filters=filters_no_conn,
+                    order="timestamp.asc",
+                    limit=10000,
+                )
+                read_mode = "monthly_connection_column_missing"
+            except httpx.HTTPStatusError as fallback_exc:
+                fallback_schema_pending = (
+                    fallback_exc.response is not None
+                    and fallback_exc.response.status_code == 404
+                ) or _is_missing_column_error(fallback_exc, "media_product_type") or _is_missing_column_error(
+                    fallback_exc, "insights_json"
+                )
+                if not fallback_schema_pending:
+                    raise
+                rows = []
+                read_mode = "monthly_schema_pending"
         else:
-            filters_no_conn["timestamp"] = f"gte.{since_dt.isoformat()}"
-        rows = await sb_select(
-            "ig_media",
-            select="timestamp,media_product_type,insights_json",
-            filters=filters_no_conn,
-            order="timestamp.asc",
-            limit=10000,
-        )
-        read_mode = "monthly_connection_column_missing"
+            raise
 
     month_map: Dict[str, Dict[str, Any]] = {}
     for row in rows:

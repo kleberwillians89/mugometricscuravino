@@ -1,18 +1,28 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Bar, Line } from "react-chartjs-2";
+import { Line } from "react-chartjs-2";
 import type { ChartData, ChartOptions } from "chart.js";
 
 import Shell from "../components/Shell";
+import DashboardHeader from "../components/dashboard/DashboardHeader";
 import useDashboardGa4 from "../hooks/dashboard/useDashboardGa4";
-import { syncGa4 } from "../app/api";
+import useDashboardFbits from "../hooks/dashboard/useDashboardFbits";
+import FbitsSalesPanel from "../components/dashboard/FbitsSalesPanel";
+import { syncFbits, syncGa4 } from "../app/api";
 import { usePeriod } from "../app/PeriodContext";
-import type { Ga4CampaignRow, Ga4ChannelRow, Ga4EventGroup, Ga4ReportResponse } from "../app/types";
+import { formatSelectedPeriodLabel, getSelectedPeriodRange } from "../app/periodRange";
+import type {
+  Ga4CampaignRow,
+  Ga4ChannelRow,
+  Ga4DailyStatRow,
+  Ga4EventGroup,
+  Ga4EventRow,
+  Ga4ReportResponse,
+} from "../app/types";
 import {
-  getRooveClientConfigurationWarning,
-  ROOVE_APP_NAME,
-  ROOVE_CLIENT_ID,
-  ROOVE_CLIENT_NAME,
-} from "../app/roove";
+  GA4_CLIENT_OPTIONS,
+  ACTIVE_CLIENT_ID,
+  getCuravinoClientConfigurationWarning,
+} from "../app/curavino";
 import { CHART_COLORS, formatDatePtBr, formatFullNumber } from "../components/dashboard/chartTheme";
 
 import "../styles/dashboard.css";
@@ -21,11 +31,11 @@ import "../styles/google-analytics.css";
 type Props = {
   onLogout: () => void | Promise<void>;
   onOpenDashboard: () => void;
-  onOpenShopifyReport?: () => void;
   isAuthenticated?: boolean;
 };
 
 type PeriodPreset = "7d" | "30d" | "month" | "specific";
+const GA4_CLIENT_STORAGE_KEY = "mugo_metrics_ga4_client_id";
 
 function toDateInput(value: Date) {
   const year = value.getFullYear();
@@ -54,21 +64,8 @@ function resolveInitialPreset(start: string, end: string, days: number): PeriodP
 }
 
 function toErrorMessage(error: unknown) {
-  if (error instanceof Error && error.message) return error.message;
-  if (typeof error === "string" && error.trim()) return error;
-  return "Não foi possível carregar os dados do Google Analytics.";
-}
-
-function formatCurrency(value: number) {
-  try {
-    return value.toLocaleString("pt-BR", {
-      style: "currency",
-      currency: "BRL",
-      maximumFractionDigits: 2,
-    });
-  } catch {
-    return String(value);
-  }
+  console.warn("[google-ga4]", error);
+  return "Não foi possível atualizar os dados agora. Tente novamente em instantes.";
 }
 
 function formatPct(value: number) {
@@ -92,9 +89,44 @@ function hasGa4Data(report: Ga4ReportResponse | null) {
   if (!report) return false;
   return (
     report.summary.sessions > 0 ||
-    report.summary.event_count > 0 ||
-    report.summary.purchase_revenue > 0
+    report.summary.event_count > 0
   );
+}
+
+function resolveInitialGa4ClientId() {
+  const optionIds = new Set(GA4_CLIENT_OPTIONS.map((client) => client.id));
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const fromUrl = String(params.get("client_id") || "").trim();
+    if (fromUrl && optionIds.has(fromUrl)) return fromUrl;
+
+    const fromStorage = String(window.localStorage.getItem(GA4_CLIENT_STORAGE_KEY) || "").trim();
+    if (fromStorage && optionIds.has(fromStorage)) return fromStorage;
+  } catch {
+    // Browser APIs may be unavailable during tests.
+  }
+  return ACTIVE_CLIENT_ID;
+}
+
+function uniqueGa4Options(values: Array<string | null | undefined>) {
+  return Array.from(
+    new Set(
+      values
+        .map((value) => String(value || "").trim())
+        .filter(Boolean)
+    )
+  ).sort((left, right) => left.localeCompare(right, "pt-BR"));
+}
+
+function persistGa4ClientId(clientId: string) {
+  try {
+    window.localStorage.setItem(GA4_CLIENT_STORAGE_KEY, clientId);
+    const url = new URL(window.location.href);
+    url.searchParams.set("client_id", clientId);
+    window.history.replaceState({}, document.title, `${url.pathname}?${url.searchParams.toString()}`);
+  } catch {
+    // no-op
+  }
 }
 
 function shortDateLabel(value: string) {
@@ -226,6 +258,164 @@ function GoogleTopList({
   );
 }
 
+function GoogleDailyTable({ rows }: { rows: Ga4DailyStatRow[] }) {
+  if (!rows.length) {
+    return <div className="googleEmptyCard">Sem dados no período.</div>;
+  }
+  return (
+    <article className="googleListCard googleTableCard">
+      <div className="tableWrap googleDataTableWrap">
+        <table className="table googleDataTable">
+          <thead>
+            <tr>
+              <th>Data</th>
+              <th>Sessões</th>
+              <th>Usuários ativos</th>
+              <th>Usuários totais</th>
+              <th>Eventos</th>
+              <th>Evento purchase GA4</th>
+              <th>View item</th>
+              <th>Add cart</th>
+              <th>Checkout</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.date}>
+                <td>{formatDatePtBr(row.date)}</td>
+                <td>{formatFullNumber(row.sessions)}</td>
+                <td>{formatFullNumber(row.active_users)}</td>
+                <td>{formatFullNumber(row.total_users)}</td>
+                <td>{formatFullNumber(row.event_count)}</td>
+                <td>{formatFullNumber(row.purchase_count || row.ecommerce_purchases)}</td>
+                <td>{formatFullNumber(row.view_item_count)}</td>
+                <td>{formatFullNumber(row.add_to_cart_count)}</td>
+                <td>{formatFullNumber(row.begin_checkout_count)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </article>
+  );
+}
+
+function GoogleChannelsTable({ rows }: { rows: Ga4ChannelRow[] }) {
+  if (!rows.length) {
+    return <div className="googleEmptyCard">Sem dados no período.</div>;
+  }
+  return (
+    <article className="googleListCard googleTableCard">
+      <div className="tableWrap googleDataTableWrap">
+        <table className="table googleDataTable">
+          <thead>
+            <tr>
+              <th>Canal</th>
+              <th>Source</th>
+              <th>Medium</th>
+              <th>Sessões</th>
+              <th>Usuários ativos</th>
+              <th>Usuários totais</th>
+              <th>Eventos</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={`${row.source_medium}-${row.source}-${row.medium}`}>
+                <td>
+                  <div className="cellTitle">{row.source_medium || "Tráfego direto / indefinido"}</div>
+                </td>
+                <td>{row.source || "-"}</td>
+                <td>{row.medium || "-"}</td>
+                <td>{formatFullNumber(row.sessions)}</td>
+                <td>{formatFullNumber(row.active_users)}</td>
+                <td>{formatFullNumber(row.total_users)}</td>
+                <td>{formatFullNumber(row.event_count)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </article>
+  );
+}
+
+function GoogleCampaignsTable({ rows }: { rows: Ga4CampaignRow[] }) {
+  if (!rows.length) {
+    return <div className="googleEmptyCard">Sem dados no período.</div>;
+  }
+  return (
+    <article className="googleListCard googleTableCard">
+      <div className="tableWrap googleDataTableWrap">
+        <table className="table googleDataTable">
+          <thead>
+            <tr>
+              <th>Campanha</th>
+              <th>Origem / mídia</th>
+              <th>Sessões</th>
+              <th>Usuários ativos</th>
+              <th>Usuários totais</th>
+              <th>Eventos</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={`${row.campaign_name}-${row.source_medium}`}>
+                <td>
+                  <div className="cellTitle">{row.campaign_name || "Campanha sem nome"}</div>
+                  <div className="cellMuted">{row.source || "-"} / {row.medium || "-"}</div>
+                </td>
+                <td>{row.source_medium || "-"}</td>
+                <td>{formatFullNumber(row.sessions)}</td>
+                <td>{formatFullNumber(row.active_users)}</td>
+                <td>{formatFullNumber(row.total_users)}</td>
+                <td>{formatFullNumber(row.event_count)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </article>
+  );
+}
+
+function GoogleEventsTable({ rows }: { rows: Ga4EventRow[] }) {
+  if (!rows.length) {
+    return <div className="googleEmptyCard">Sem dados no período.</div>;
+  }
+  return (
+    <article className="googleListCard googleTableCard">
+      <div className="tableWrap googleDataTableWrap">
+        <table className="table googleDataTable">
+          <thead>
+            <tr>
+              <th>Evento</th>
+              <th>Ocorrências</th>
+              <th>Usuários</th>
+              <th>Primeira leitura</th>
+              <th>Última leitura</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.event_name}>
+                <td>
+                  <div className="cellTitle">{row.label || row.event_name}</div>
+                  {row.description ? <div className="cellMuted">{row.description}</div> : null}
+                </td>
+                <td>{formatFullNumber(row.event_count)}</td>
+                <td>{formatFullNumber(row.total_users)}</td>
+                <td>{row.first_seen_at ? formatDatePtBr(row.first_seen_at.slice(0, 10)) : "-"}</td>
+                <td>{row.last_seen_at ? formatDatePtBr(row.last_seen_at.slice(0, 10)) : "-"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </article>
+  );
+}
+
 function GoogleAnalyticsSkeleton() {
   return (
     <div className="googleSkeletonLayout" aria-hidden="true">
@@ -249,7 +439,6 @@ function GoogleAnalyticsSkeleton() {
 export default function GoogleAnalytics({
   onLogout,
   onOpenDashboard,
-  onOpenShopifyReport,
   isAuthenticated = false,
 }: Props) {
   const { period, periodDays, setCurrentMonthPeriod, setMonthPeriod, setPresetPeriod } = usePeriod();
@@ -259,8 +448,22 @@ export default function GoogleAnalytics({
   const initialDate = todayDateInput();
   const [selectedMonth, setSelectedMonth] = useState(initialDate.month);
   const [selectedYear, setSelectedYear] = useState(initialDate.year);
+  const [selectedGa4ClientId, setSelectedGa4ClientId] = useState(resolveInitialGa4ClientId);
   const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [channelFilter, setChannelFilter] = useState("");
+  const [sourceMediumFilter, setSourceMediumFilter] = useState("");
+  const [campaignFilter, setCampaignFilter] = useState("");
+  const [platformFilter, setPlatformFilter] = useState("");
+  const [deviceFilter, setDeviceFilter] = useState("");
   const [syncing, setSyncing] = useState(false);
+  const selectedGa4Client =
+    GA4_CLIENT_OPTIONS.find((client) => client.id === selectedGa4ClientId) || GA4_CLIENT_OPTIONS[0];
+  const activeGa4ClientId = selectedGa4Client?.id || ACTIVE_CLIENT_ID;
+  const activeGa4ClientName = selectedGa4Client?.name || "cliente selecionado";
+  const selectedRange = useMemo(
+    () => getSelectedPeriodRange(period, selectedMonth, selectedYear),
+    [period, selectedMonth, selectedYear]
+  );
 
   const {
     ga4Report,
@@ -271,9 +474,25 @@ export default function GoogleAnalytics({
     reloadGa4,
   } = useDashboardGa4({
     isAuthenticated,
-    activeClientId: ROOVE_CLIENT_ID,
-    period,
+    activeClientId: activeGa4ClientId,
+    period: selectedRange,
   });
+  const {
+    fbitsData,
+    fbitsOrders,
+    fbitsError,
+    loadingFbits,
+    reloadFbits,
+  } = useDashboardFbits({
+    isAuthenticated,
+    activeClientId: activeGa4ClientId,
+    period: selectedRange,
+  });
+
+  useEffect(() => {
+    if (selectedGa4ClientId === activeGa4ClientId) return;
+    setSelectedGa4ClientId(activeGa4ClientId);
+  }, [activeGa4ClientId, selectedGa4ClientId]);
 
   useEffect(() => {
     const startDate = new Date(`${period.start}T00:00:00`);
@@ -290,10 +509,10 @@ export default function GoogleAnalytics({
 
   const hasData = hasGa4Data(ga4Report);
   const combinedError = refreshError || ga4Error;
-  const configWarning = getRooveClientConfigurationWarning();
+  const configWarning = activeGa4ClientId === ACTIVE_CLIENT_ID ? getCuravinoClientConfigurationWarning() : null;
   const lastSyncedLabel =
     formatUpdatedAtLabel(ga4Report?.meta.last_synced_at) || formatUpdatedAtLabel(ga4UpdatedAt);
-  const pagePeriodLabel = `${formatDatePtBr(period.start)} - ${formatDatePtBr(period.end)}`;
+  const pagePeriodLabel = `${formatDatePtBr(selectedRange.start)} - ${formatDatePtBr(selectedRange.end)}`;
 
   const dailyRows = ga4Report?.trends.daily || [];
   const trafficChartData = useMemo<ChartData<"line">>(
@@ -321,24 +540,6 @@ export default function GoogleAnalytics({
           pointRadius: 0,
           pointHoverRadius: 4,
           fill: false,
-        },
-      ],
-    }),
-    [dailyRows]
-  );
-
-  const revenueChartData = useMemo<ChartData<"bar">>(
-    () => ({
-      labels: dailyRows.map((row) => shortDateLabel(row.date)),
-      datasets: [
-        {
-          label: "Receita",
-          data: dailyRows.map((row) => row.purchase_revenue),
-          backgroundColor: "rgba(215,219,106,.78)",
-          borderColor: "rgba(26,23,24,.18)",
-          borderWidth: 1,
-          borderRadius: 10,
-          maxBarThickness: 24,
         },
       ],
     }),
@@ -392,52 +593,79 @@ export default function GoogleAnalytics({
     []
   );
 
-  const barOptions = useMemo<ChartOptions<"bar">>(
-    () => ({
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: {
-          display: false,
-        },
-        tooltip: {
-          backgroundColor: CHART_COLORS.tooltipBg,
-          borderColor: CHART_COLORS.tooltipBorder,
-          borderWidth: 1,
-          titleColor: CHART_COLORS.tooltipText,
-          bodyColor: CHART_COLORS.tooltipText,
-          callbacks: {
-            label: (context) => formatCurrency(Number(context.raw || 0)),
-          },
-        },
-      },
-      scales: {
-        x: {
-          grid: {
-            display: false,
-          },
-          ticks: {
-            color: CHART_COLORS.axis,
-          },
-        },
-        y: {
-          beginAtZero: true,
-          grid: {
-            color: CHART_COLORS.grid,
-          },
-          ticks: {
-            color: CHART_COLORS.axis,
-            callback: (value) => formatCurrency(Number(value || 0)),
-          },
-        },
-      },
-    }),
-    []
+  const filteredChannels = useMemo(() => {
+    const channelNeedle = channelFilter.trim().toLowerCase();
+    const sourceNeedle = sourceMediumFilter.trim().toLowerCase();
+    const platformNeedle = platformFilter.trim().toLowerCase();
+    const deviceNeedle = deviceFilter.trim().toLowerCase();
+    return (ga4Report?.channels || []).filter((row) => {
+      const dynamic = row as Ga4ChannelRow & { platform?: string; device?: string; device_category?: string };
+      return (
+        (!channelNeedle || String(row.source_medium || "").toLowerCase().includes(channelNeedle)) &&
+        (!sourceNeedle || `${row.source || ""} ${row.medium || ""} ${row.source_medium || ""}`.toLowerCase().includes(sourceNeedle)) &&
+        (!platformNeedle || String(dynamic.platform || "").toLowerCase().includes(platformNeedle)) &&
+        (!deviceNeedle || `${dynamic.device || ""} ${dynamic.device_category || ""}`.toLowerCase().includes(deviceNeedle))
+      );
+    });
+  }, [channelFilter, deviceFilter, ga4Report?.channels, platformFilter, sourceMediumFilter]);
+
+  const filteredCampaigns = useMemo(() => {
+    const campaignNeedle = campaignFilter.trim().toLowerCase();
+    const sourceNeedle = sourceMediumFilter.trim().toLowerCase();
+    const platformNeedle = platformFilter.trim().toLowerCase();
+    const deviceNeedle = deviceFilter.trim().toLowerCase();
+    return (ga4Report?.campaigns || []).filter((row) => {
+      const dynamic = row as Ga4CampaignRow & { platform?: string; device?: string; device_category?: string };
+      return (
+        (!campaignNeedle || String(row.campaign_name || "").toLowerCase().includes(campaignNeedle)) &&
+        (!sourceNeedle || `${row.source || ""} ${row.medium || ""} ${row.source_medium || ""}`.toLowerCase().includes(sourceNeedle)) &&
+        (!platformNeedle || String(dynamic.platform || "").toLowerCase().includes(platformNeedle)) &&
+        (!deviceNeedle || `${dynamic.device || ""} ${dynamic.device_category || ""}`.toLowerCase().includes(deviceNeedle))
+      );
+    });
+  }, [campaignFilter, deviceFilter, ga4Report?.campaigns, platformFilter, sourceMediumFilter]);
+  const channelOptions = useMemo(
+    () => uniqueGa4Options((ga4Report?.channels || []).map((row) => row.source_medium)),
+    [ga4Report?.channels]
+  );
+  const sourceMediumOptions = useMemo(
+    () =>
+      uniqueGa4Options([
+        ...(ga4Report?.channels || []).map((row) => row.source_medium || `${row.source || ""} / ${row.medium || ""}`),
+        ...(ga4Report?.campaigns || []).map((row) => row.source_medium || `${row.source || ""} / ${row.medium || ""}`),
+      ]),
+    [ga4Report?.campaigns, ga4Report?.channels]
+  );
+  const campaignOptions = useMemo(
+    () => uniqueGa4Options((ga4Report?.campaigns || []).map((row) => row.campaign_name)),
+    [ga4Report?.campaigns]
+  );
+  const platformOptions = useMemo(
+    () =>
+      uniqueGa4Options([
+        ...(ga4Report?.channels || []).map((row) => (row as Ga4ChannelRow & { platform?: string }).platform),
+        ...(ga4Report?.campaigns || []).map((row) => (row as Ga4CampaignRow & { platform?: string }).platform),
+      ]),
+    [ga4Report?.campaigns, ga4Report?.channels]
+  );
+  const deviceOptions = useMemo(
+    () =>
+      uniqueGa4Options([
+        ...(ga4Report?.channels || []).flatMap((row) => {
+          const dynamic = row as Ga4ChannelRow & { device?: string; device_category?: string };
+          return [dynamic.device, dynamic.device_category];
+        }),
+        ...(ga4Report?.campaigns || []).flatMap((row) => {
+          const dynamic = row as Ga4CampaignRow & { device?: string; device_category?: string };
+          return [dynamic.device, dynamic.device_category];
+        }),
+      ]),
+    [ga4Report?.campaigns, ga4Report?.channels]
   );
 
   const topChannels = useMemo(
     () =>
-      [...(ga4Report?.channels || [])]
+      [...filteredChannels]
         .sort((a, b) => b.sessions - a.sessions)
         .slice(0, 5)
         .map((row: Ga4ChannelRow) => ({
@@ -445,46 +673,64 @@ export default function GoogleAnalytics({
           label: row.source_medium || "Tráfego direto / indefinido",
           meta: `${formatFullNumber(row.total_users)} usuários • ${formatFullNumber(row.event_count)} eventos`,
           value: `${formatFullNumber(row.sessions)} sessões`,
-          subvalue: formatCurrency(row.purchase_revenue),
+          subvalue: `${formatFullNumber(row.active_users)} usuários ativos`,
         })),
-    [ga4Report?.channels]
+    [filteredChannels]
   );
 
   const topCampaigns = useMemo(
     () =>
-      [...(ga4Report?.campaigns || [])]
-        .sort((a, b) => {
-          const revenueDiff = b.purchase_revenue - a.purchase_revenue;
-          if (revenueDiff !== 0) return revenueDiff;
-          return b.sessions - a.sessions;
-        })
+      [...filteredCampaigns]
+        .sort((a, b) => b.sessions - a.sessions)
         .slice(0, 5)
         .map((row: Ga4CampaignRow) => ({
           id: `${row.campaign_name}-${row.source_medium || "campaign"}`,
           label: row.campaign_name || "Campanha sem nome",
-          meta: `${row.source_medium || "origem não identificada"} • ${formatFullNumber(row.ecommerce_purchases)} compras`,
-          value: formatCurrency(row.purchase_revenue),
-          subvalue: `${formatFullNumber(row.sessions)} sessões`,
+          meta: `${row.source_medium || "origem não identificada"} • ${formatFullNumber(row.event_count)} eventos`,
+          value: `${formatFullNumber(row.sessions)} sessões`,
+          subvalue: `${formatFullNumber(row.active_users)} usuários ativos`,
         })),
-    [ga4Report?.campaigns]
+    [filteredCampaigns]
   );
 
   const handleRefresh = useCallback(async () => {
     setRefreshError(null);
     setSyncing(true);
     try {
-      await syncGa4({
-        start: period.start,
-        end: period.end,
-        days: periodDays,
-      });
-      await reloadGa4({ force: true });
+      const syncResults = await Promise.allSettled([
+        syncGa4({
+          start: selectedRange.start,
+          end: selectedRange.end,
+          days: periodDays,
+        }, {
+          clientId: activeGa4ClientId,
+        }),
+        syncFbits({
+          start: selectedRange.start,
+          end: selectedRange.end,
+          days: periodDays,
+        }, {
+          clientId: activeGa4ClientId,
+        }),
+      ]);
+      const rejectedSync = syncResults.find((result) => result.status === "rejected");
+      if (rejectedSync?.status === "rejected") {
+        console.warn("[google-refresh]", rejectedSync.reason);
+        setRefreshError("Falha parcial ao atualizar. Mantendo a última leitura disponível.");
+      }
+      await Promise.allSettled([reloadGa4({ force: true }), reloadFbits({ force: true })]);
     } catch (error: unknown) {
       setRefreshError(toErrorMessage(error));
     } finally {
       setSyncing(false);
     }
-  }, [period.end, period.start, periodDays, reloadGa4]);
+  }, [activeGa4ClientId, periodDays, reloadFbits, reloadGa4, selectedRange.end, selectedRange.start]);
+
+  function handleGa4ClientChange(nextClientId: string) {
+    setSelectedGa4ClientId(nextClientId);
+    persistGa4ClientId(nextClientId);
+    setRefreshError(null);
+  }
 
   function handlePresetChange(nextPreset: PeriodPreset) {
     setPreset(nextPreset);
@@ -521,49 +767,70 @@ export default function GoogleAnalytics({
 
   return (
     <Shell
-      themeClass="theme-roove"
-      title={ROOVE_APP_NAME}
-      subtitle="Leitura dedicada de Google Analytics 4"
+      themeClass="theme-curavino"
+      title=""
       right={
-        <div className="googleShellActions">
-          <button className="btn btnGhost" onClick={onOpenDashboard} type="button">
-            Painel principal
-          </button>
-          {onOpenShopifyReport ? (
-            <button className="btn btnGhost" onClick={onOpenShopifyReport} type="button">
-              Dados Shopify
-            </button>
-          ) : null}
-          <button className="btnLogout" onClick={() => onLogout()} type="button">
-            Sair
-          </button>
-        </div>
+        <DashboardHeader
+          activeView="google"
+          backgroundRefreshing={refreshingGa4}
+          onLogout={onLogout}
+          onOpenGoogleAnalytics={() => {}}
+          onOpenMeta={onOpenDashboard}
+          onRefresh={handleRefresh}
+          onSelectPeriodPreset={(nextPreset) => handlePresetChange(nextPreset)}
+          periodPreset={preset === "specific" ? "custom" : preset}
+          refreshing={syncing}
+          statusChips={[
+            {
+              connected: Boolean(ga4Report),
+              label: `${ga4Report ? "GA4 com dados" : "GA4 aguardando dados"}${lastSyncedLabel ? ` • ${lastSyncedLabel}` : ""}`,
+            },
+            {
+              connected: Boolean(fbitsData?.connected),
+              label: `${fbitsData?.connected ? "FBits conectada" : "FBits aguardando dados"}`,
+            },
+          ]}
+        />
       }
     >
       <div className="googleReportPage">
         {configWarning ? <div className="googleFeedbackCard isWarning">{configWarning}</div> : null}
-
         <section className="googleHero">
           <div className="googleHeroCopy">
             <div className="googlePageEyebrow">Google Analytics 4</div>
-            <h1 className="googlePageTitle">Dados Google / GA4</h1>
+            <h1 className="googlePageTitle">Dados Google</h1>
             <p className="googlePageSubtitle">
               Visão clara do comportamento do site, da jornada comercial e dos sinais de merchandising da{" "}
-              {ROOVE_CLIENT_NAME}.
+              {activeGa4ClientName}. Dados provenientes do Google Analytics 4.
             </p>
             <div className="googleHeroMeta">
               <span className="pill">{pagePeriodLabel}</span>
-              {ga4Report?.property_id ? <span className="pill">Property {ga4Report.property_id}</span> : null}
+              <span className="pill">Fonte: GA4 · {formatSelectedPeriodLabel(selectedRange)}</span>
               <span className="googleHeroTimestamp">
                 Última leitura: {lastSyncedLabel || "aguardando sincronização"}
               </span>
             </div>
             <div className="googleQuickNav">
+              <a className="googleQuickNavLink" href="#google-sales">
+                Comercial
+              </a>
               <a className="googleQuickNavLink" href="#google-summary">
-                Summary
+                Comportamento
               </a>
               <a className="googleQuickNavLink" href="#google-funnel">
                 Funnel
+              </a>
+              <a className="googleQuickNavLink" href="#google-daily">
+                Evolução
+              </a>
+              <a className="googleQuickNavLink" href="#google-channels">
+                Canais
+              </a>
+              <a className="googleQuickNavLink" href="#google-campaigns">
+                Campanhas
+              </a>
+              <a className="googleQuickNavLink" href="#google-events">
+                Eventos
               </a>
               <a className="googleQuickNavLink" href="#google-behavior">
                 Behavior
@@ -625,6 +892,23 @@ export default function GoogleAnalytics({
               </select>
             </label>
 
+            {GA4_CLIENT_OPTIONS.length > 1 ? (
+              <label className="googleFilterField">
+                <span>Cliente</span>
+                <select
+                  className="select"
+                  value={activeGa4ClientId}
+                  onChange={(event) => handleGa4ClientChange(event.target.value)}
+                >
+                  {GA4_CLIENT_OPTIONS.map((client) => (
+                    <option key={client.id} value={client.id}>
+                      {client.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+
             <div className="googleStatusLine">
               {syncing || refreshingGa4
                 ? "Sincronizando dados do GA4..."
@@ -633,22 +917,24 @@ export default function GoogleAnalytics({
                   : "GA4 carregado, mas sem dados relevantes neste período."}
             </div>
 
-            <button
-              className="btn btnPrimary googleRefreshButton"
-              disabled={syncing || refreshingGa4}
-              onClick={() => void handleRefresh()}
-              type="button"
-            >
-              {syncing || refreshingGa4 ? "Atualizando..." : "Atualizar dados"}
-            </button>
           </div>
+        </section>
+
+        <section className="googleSection googleCommercialSection" id="google-sales">
+          <div className="sectionHeader">
+            <div>
+              <div className="h1">Comercial</div>
+              <div className="p">Leitura oficial de vendas separada dos sinais de comportamento do GA4.</div>
+            </div>
+          </div>
+          <FbitsSalesPanel data={fbitsData} orders={fbitsOrders} loading={loadingFbits} error={fbitsError} />
         </section>
 
         {loadingGa4 && !ga4Report ? <GoogleAnalyticsSkeleton /> : null}
 
         {combinedError && !ga4Report ? (
           <div className="googleFeedbackCard isError">
-            Não foi possível carregar os dados do Google Analytics. {combinedError}
+            Não foi possível carregar os dados do Google Analytics agora. Tente atualizar em instantes.
           </div>
         ) : null}
 
@@ -656,24 +942,21 @@ export default function GoogleAnalytics({
           <>
             {!hasData ? (
               <div className="googleFeedbackCard">
-                O acesso do Google ficou visível nesta rota mesmo quando o período ainda não tem eventos ou receita.
-                Ajuste o intervalo ou rode uma sincronização para popular a leitura.
+                Sem dados no período.
               </div>
             ) : null}
 
             {combinedError && hasData ? (
               <div className="googleFeedbackCard isWarning">
-                Atualização parcial: a última base carregada continua visível. {combinedError}
+                Atualização parcial: a última base carregada continua visível.
               </div>
             ) : null}
 
             <section className="googleSection" id="google-summary">
               <div className="sectionHeader">
                 <div>
-                  <div className="h1">Summary</div>
-                  <div className="p">
-                    Resumo executivo de tráfego, base de usuários, eventos e receita observada no GA4.
-                  </div>
+                  <div className="h1">Comportamento GA4</div>
+                  <div className="p">Resumo executivo de tráfego, base de usuários e eventos observados no GA4.</div>
                 </div>
                 {lastSyncedLabel ? (
                   <div className="dashboardSectionMeta">
@@ -707,18 +990,6 @@ export default function GoogleAnalytics({
                       : 0
                   )} de eventos por 100 sessões`}
                 />
-                <GoogleMetricCard
-                  label="Compras"
-                  value={formatFullNumber(ga4Report.summary.purchases)}
-                  hint={`${formatPct(ga4Report.commerce_journey.summary.purchase_rate_from_view_item)} de compra por view_item`}
-                  accent
-                />
-                <GoogleMetricCard
-                  label="Receita atribuída"
-                  value={formatCurrency(ga4Report.summary.purchase_revenue)}
-                  hint={`Receita total ${formatCurrency(ga4Report.summary.total_revenue)}`}
-                  accent
-                />
               </div>
 
               <div className="googleChartGrid">
@@ -741,24 +1012,6 @@ export default function GoogleAnalytics({
                   </div>
                 </article>
 
-                <article className="googleChartCard">
-                  <div className="googleChartCardHead">
-                    <div>
-                      <div className="googleMiniLabel">Receita por dia</div>
-                      <p className="googleChartDescription">
-                        Leitura diária da receita de compra capturada pelo GA4.
-                      </p>
-                    </div>
-                    <div className="googleChartValue">{formatCurrency(ga4Report.summary.purchase_revenue)}</div>
-                  </div>
-                  <div className="googleChartViewport">
-                    {dailyRows.length ? (
-                      <Bar data={revenueChartData} options={barOptions} />
-                    ) : (
-                      <div className="googleChartEmptyState">Sem receita diária disponível para o período.</div>
-                    )}
-                  </div>
-                </article>
               </div>
 
               <div className="googleSecondaryGrid">
@@ -770,7 +1023,7 @@ export default function GoogleAnalytics({
                 />
                 <GoogleTopList
                   title="Top campanhas"
-                  description="Campanhas com maior contribuição de receita ou tráfego na leitura do GA4."
+                  description="Campanhas com maior contribuição de tráfego na leitura do GA4."
                   items={topCampaigns}
                   emptyMessage="Ainda não há campanhas com dados relevantes neste período."
                 />
@@ -795,7 +1048,7 @@ export default function GoogleAnalytics({
                       Etapas mais importantes entre descoberta de produto, checkout e compra final.
                     </div>
                   </div>
-                  <span className="pill">{formatCurrency(ga4Report.summary.purchase_revenue)} em receita</span>
+                  <span className="pill">Tracking comportamental GA4</span>
                 </div>
 
                 <div className="ga4JourneyGrid">
@@ -829,7 +1082,7 @@ export default function GoogleAnalytics({
                     </span>
                   </div>
                   <div className="ga4JourneyStep">
-                    <span className="smallMuted">Comprou</span>
+                    <span className="smallMuted">Evento purchase GA4</span>
                     <strong>{formatFullNumber(ga4Report.commerce_journey.summary.purchase)}</strong>
                     <span className="ga4JourneyHint">Conversão final</span>
                     <span className="ga4JourneyRate">
@@ -838,6 +1091,93 @@ export default function GoogleAnalytics({
                   </div>
                 </div>
               </div>
+            </section>
+
+            <section className="googleSection" id="google-daily">
+              <div className="sectionHeader">
+                <div>
+                  <div className="h1">Evolução diária</div>
+                  <div className="p">
+                    Série de tráfego, usuários, eventos e passos do funil por dia.
+                  </div>
+                </div>
+              </div>
+              <GoogleDailyTable rows={dailyRows} />
+            </section>
+
+            <section className="googleSection" id="google-channels">
+              <div className="sectionHeader">
+                <div>
+                  <div className="h1">Canais</div>
+                  <div className="p">
+                    Origem e mídia com sessões, usuários e eventos no período.
+                  </div>
+                </div>
+              </div>
+              <div className="googleSourceFilters">
+                <label>
+                  <span>Canal</span>
+                  <select className="select" value={channelFilter} onChange={(event) => setChannelFilter(event.target.value)}>
+                    <option value="">Todos os canais</option>
+                    {channelOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+                  </select>
+                </label>
+                <label>
+                  <span>Source / medium</span>
+                  <select className="select" value={sourceMediumFilter} onChange={(event) => setSourceMediumFilter(event.target.value)}>
+                    <option value="">Todas as origens</option>
+                    {sourceMediumOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+                  </select>
+                </label>
+                <label>
+                  <span>Plataforma</span>
+                  <select className="select" value={platformFilter} onChange={(event) => setPlatformFilter(event.target.value)}>
+                    <option value="">Todas as plataformas</option>
+                    {platformOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+                  </select>
+                </label>
+                <label>
+                  <span>Dispositivo</span>
+                  <select className="select" value={deviceFilter} onChange={(event) => setDeviceFilter(event.target.value)}>
+                    <option value="">Todos os dispositivos</option>
+                    {deviceOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+                  </select>
+                </label>
+              </div>
+              <GoogleChannelsTable rows={filteredChannels} />
+            </section>
+
+            <section className="googleSection" id="google-campaigns">
+              <div className="sectionHeader">
+                <div>
+                  <div className="h1">Campanhas</div>
+                  <div className="p">
+                    Campanhas capturadas pelo GA4 com contribuição de tráfego e eventos.
+                  </div>
+                </div>
+              </div>
+              <div className="googleSourceFilters isCampaign">
+                <label>
+                  <span>Campanha GA4</span>
+                  <select className="select" value={campaignFilter} onChange={(event) => setCampaignFilter(event.target.value)}>
+                    <option value="">Todas as campanhas</option>
+                    {campaignOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+                  </select>
+                </label>
+              </div>
+              <GoogleCampaignsTable rows={filteredCampaigns} />
+            </section>
+
+            <section className="googleSection" id="google-events">
+              <div className="sectionHeader">
+                <div>
+                  <div className="h1">Eventos</div>
+                  <div className="p">
+                    Eventos brutos do GA4 com contagem de ocorrências, usuários e janela de leitura.
+                  </div>
+                </div>
+              </div>
+              <GoogleEventsTable rows={ga4Report.events} />
             </section>
 
             <section className="googleSection" id="google-behavior">
