@@ -38,6 +38,28 @@ function safeDate(value: string): string | null {
   return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : null;
 }
 
+function calendarParts(value: string | null | undefined) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || "").trim());
+  if (!match) return null;
+  return {
+    year: Number(match[1]),
+    month: Number(match[2]),
+    day: Number(match[3]),
+  };
+}
+
+function shiftedMonthPeriod(start: string, end: string): Period | null {
+  const startParts = calendarParts(start);
+  const endParts = calendarParts(end);
+  if (!startParts || !endParts) return null;
+  if (startParts.day === 1 || endParts.day !== 1) return null;
+  const expectedMonth = startParts.month === 12 ? 1 : startParts.month + 1;
+  const expectedYear = startParts.month === 12 ? startParts.year + 1 : startParts.year;
+  if (endParts.month !== expectedMonth || endParts.year !== expectedYear) return null;
+  const range = buildMonthRange(startParts.year, startParts.month);
+  return { start: range.start, end: range.end };
+}
+
 function defaultPeriod(days = 30): Period {
   const end = new Date();
   const start = new Date();
@@ -70,6 +92,8 @@ function readStoredPeriod(): Period {
     const start = String(parsed.start || "").trim();
     const end = String(parsed.end || "").trim();
     if (!safeDate(start) || !safeDate(end)) return defaultPeriod();
+    const normalizedShiftedMonth = shiftedMonthPeriod(start, end);
+    if (normalizedShiftedMonth) return normalizedShiftedMonth;
     return { start, end };
   } catch {
     return defaultPeriod();

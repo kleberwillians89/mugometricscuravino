@@ -9,7 +9,7 @@ import useDashboardFbits from "../hooks/dashboard/useDashboardFbits";
 import FbitsSalesPanel from "../components/dashboard/FbitsSalesPanel";
 import { backfillFbitsOrders, syncFbits, syncGa4 } from "../app/api";
 import { usePeriod } from "../app/PeriodContext";
-import { formatSelectedPeriodLabel, getSelectedPeriodRange } from "../app/periodRange";
+import { buildMonthRange, formatSelectedPeriodLabel, getSelectedPeriodRange } from "../app/periodRange";
 import type {
   Ga4CampaignRow,
   Ga4ChannelRow,
@@ -63,11 +63,41 @@ function todayDateInput() {
   };
 }
 
+function calendarParts(value: string | null | undefined) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || "").trim());
+  if (!match) return null;
+  return {
+    year: Number(match[1]),
+    month: Number(match[2]),
+    day: Number(match[3]),
+  };
+}
+
+function monthFromPeriod(start: string | null | undefined) {
+  const parts = calendarParts(start);
+  if (!parts) return todayDateInput();
+  return {
+    month: parts.month,
+    year: parts.year,
+  };
+}
+
+function isShiftedMonthRange(start: string, end: string) {
+  const startParts = calendarParts(start);
+  const endParts = calendarParts(end);
+  if (!startParts || !endParts) return false;
+  if (startParts.day === 1 || endParts.day !== 1) return false;
+  const expectedNextMonth = startParts.month === 12 ? 1 : startParts.month + 1;
+  const expectedNextYear = startParts.month === 12 ? startParts.year + 1 : startParts.year;
+  return endParts.month === expectedNextMonth && endParts.year === expectedNextYear;
+}
+
 function resolveInitialPreset(start: string, end: string, days: number): PeriodPreset {
   const now = new Date();
   const currentMonthStart = toDateInput(new Date(now.getFullYear(), now.getMonth(), 1));
   const today = toDateInput(now);
 
+  if (isShiftedMonthRange(start, end)) return "specific";
   if (days === 7) return "7d";
   if (days === 30) return "30d";
   if (start === currentMonthStart && end === today) return "month";
@@ -492,7 +522,7 @@ export default function GoogleAnalytics({
   const [preset, setPreset] = useState<PeriodPreset>(() =>
     resolveInitialPreset(period.start, period.end, periodDays)
   );
-  const initialDate = todayDateInput();
+  const initialDate = monthFromPeriod(period.start);
   const [selectedMonth, setSelectedMonth] = useState(initialDate.month);
   const [selectedYear, setSelectedYear] = useState(initialDate.year);
   const [selectedGa4ClientId, setSelectedGa4ClientId] = useState(resolveInitialGa4ClientId);
@@ -511,10 +541,13 @@ export default function GoogleAnalytics({
     GA4_CLIENT_OPTIONS.find((client) => client.id === selectedGa4ClientId) || GA4_CLIENT_OPTIONS[0];
   const activeGa4ClientId = selectedGa4Client?.id || ACTIVE_CLIENT_ID;
   const activeGa4ClientName = selectedGa4Client?.name || "cliente selecionado";
-  const selectedRange = useMemo(
-    () => getSelectedPeriodRange(period, selectedMonth, selectedYear),
-    [period, selectedMonth, selectedYear]
-  );
+  const selectedRange = useMemo(() => {
+    if (preset === "specific" || isShiftedMonthRange(period.start, period.end)) {
+      const range = buildMonthRange(selectedYear, selectedMonth);
+      return { start: range.start, end: range.end };
+    }
+    return getSelectedPeriodRange(period, selectedMonth, selectedYear);
+  }, [period, preset, selectedMonth, selectedYear]);
 
   const {
     ga4Report,

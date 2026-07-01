@@ -8,7 +8,13 @@ export function fallbackDashboardPeriod(days = 30): DashboardPeriod {
   const end = new Date();
   const start = new Date();
   start.setDate(end.getDate() - (safeDays - 1));
-  return getSelectedPeriodRange({ start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10) });
+  const toDateInput = (value: Date) => {
+    const year = value.getFullYear();
+    const month = String(value.getMonth() + 1).padStart(2, "0");
+    const day = String(value.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
+  return getSelectedPeriodRange({ start: toDateInput(start), end: toDateInput(end) });
 }
 
 export function ensureDashboardPeriod(

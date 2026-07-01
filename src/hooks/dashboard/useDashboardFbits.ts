@@ -45,6 +45,26 @@ function samePeriod(
   return summary?.period?.start === start && summary?.period?.end === end;
 }
 
+function calendarParts(value: string | null | undefined) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || "").trim());
+  if (!match) return null;
+  return {
+    year: Number(match[1]),
+    month: Number(match[2]),
+    day: Number(match[3]),
+  };
+}
+
+function isInvalidShiftedMonthRange(start: string, end: string) {
+  const startParts = calendarParts(start);
+  const endParts = calendarParts(end);
+  if (!startParts || !endParts) return true;
+  if (startParts.day === 1 || endParts.day !== 1) return false;
+  const expectedMonth = startParts.month === 12 ? 1 : startParts.month + 1;
+  const expectedYear = startParts.month === 12 ? startParts.year + 1 : startParts.year;
+  return endParts.month === expectedMonth && endParts.year === expectedYear;
+}
+
 export default function useDashboardFbits({ isAuthenticated, activeClientId, period }: Params) {
   const safePeriod = useMemo(() => ensureDashboardPeriod(period), [period]);
   const rangeKey = useMemo(
@@ -92,6 +112,13 @@ export default function useDashboardFbits({ isAuthenticated, activeClientId, per
     activeRequestRef.current = requestId;
     const requestStart = safePeriod.start;
     const requestEnd = safePeriod.end;
+    if (isInvalidShiftedMonthRange(requestStart, requestEnd)) {
+      console.log("[google/fbits-dashboard][blocked-invalid-period]", requestId, requestStart, requestEnd);
+      setFbitsError(null);
+      setLoadingFbits(false);
+      abortRef.current = null;
+      return null;
+    }
     console.log("[google/fbits-dashboard][request]", requestId, requestStart, requestEnd);
     const cached = options?.force ? null : readDashboardCache<FbitsCachePayload>(rangeKey);
     if (cached) {
