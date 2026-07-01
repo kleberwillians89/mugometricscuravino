@@ -3,9 +3,8 @@ services:
     name: roove-metrics-api
     env: python
     plan: starter
-    rootDir: server
-    buildCommand: pip install -r requirements.txt
-    startCommand: python run_api.py
+    buildCommand: npm ci && npm run build && pip install -r server/requirements.txt
+    startCommand: python server/run_api_prod.py
     healthCheckPath: /health
     envVars:
       - key: PYTHON_VERSION
