@@ -70,6 +70,22 @@ def _end_exclusive(value: str) -> str:
     return (parsed + timedelta(days=1)).isoformat()
 
 
+def _field_audit(field: str, rows: list[dict]) -> dict:
+    dates = sorted(str(row.get(field) or "") for row in rows if str(row.get(field) or "").strip())
+    status_counts: dict[str, int] = {}
+    for row in rows:
+        status = str(row.get("status_id") or row.get("status_name") or "-")
+        status_counts[status] = status_counts.get(status, 0) + 1
+    return {
+        "field": field,
+        "rows": len(rows),
+        "first_order_date": dates[0] if dates else None,
+        "last_order_date": dates[-1] if dates else None,
+        "total_revenue": round(sum(_safe_float(row.get("total_value")) for row in rows), 2),
+        "status_counts": dict(sorted(status_counts.items(), key=lambda item: item[0])),
+    }
+
+
 async def _fbits_context(
     *,
     client_id: str | None,
@@ -236,28 +252,65 @@ async def fbits_debug_data(
             "rows": 0,
             "revenue": 0.0,
         },
+        "date_filter": {
+            "gte": f"{start_value}T00:00:00",
+            "lt": f"{end_exclusive}T00:00:00",
+            "timezone_note": "Comparação feita no valor armazenado no Supabase; sem conversão adicional no backend.",
+        },
+        "date_field_used": None,
+        "date_field_audit": {},
         "debug_version": "fbits-supabase-debug-v1",
     }
     try:
-        order_rows = await sb_select(
-            "fbits_orders",
-            select="order_id,total_value,order_date,approved_at",
-            filters={
-                "client_id": f"eq.{cid}",
-                "and": f"(order_date.gte.{start_value}T00:00:00,order_date.lt.{end_exclusive}T00:00:00)",
-            },
-            limit=20000,
-        )
-        if not order_rows:
-            order_rows = await sb_select(
-                "fbits_orders",
-                select="order_id,total_value,order_date,approved_at",
-                filters={
-                    "client_id": f"eq.{cid}",
-                    "and": f"(approved_at.gte.{start_value}T00:00:00,approved_at.lt.{end_exclusive}T00:00:00)",
-                },
-                limit=20000,
-            )
+        audit: dict[str, dict] = {}
+        rows_by_field: dict[str, list[dict]] = {}
+        for field in ("order_date", "approved_at", "created_at", "payment_date", "created_at_fbits"):
+            try:
+                rows = await sb_select(
+                    "fbits_orders",
+                    select=f"order_id,total_value,status_id,status_name,{field}",
+                    filters={
+                        "client_id": f"eq.{cid}",
+                        "and": f"({field}.gte.{start_value}T00:00:00,{field}.lt.{end_exclusive}T00:00:00)",
+                    },
+                    order=f"{field}.asc",
+                    limit=20000,
+                )
+                rows_by_field[field] = rows
+                audit[field] = _field_audit(field, rows)
+                print(
+                    "[fbits][debug_data][date_field] "
+                    f"client_id={cid} field={field} rows={audit[field]['rows']} "
+                    f"revenue={audit[field]['total_revenue']} first={audit[field]['first_order_date']} "
+                    f"last={audit[field]['last_order_date']}"
+                )
+            except Exception as field_exc:
+                audit[field] = {
+                    "field": field,
+                    "rows": 0,
+                    "first_order_date": None,
+                    "last_order_date": None,
+                    "total_revenue": 0.0,
+                    "error": _safe_error(field_exc),
+                }
+                rows_by_field[field] = []
+                print(
+                    "[fbits][debug_data][date_field_error] "
+                    f"client_id={cid} field={field} error={audit[field]['error']}"
+                )
+
+        date_field_used = "order_date" if rows_by_field.get("order_date") else "approved_at"
+        order_rows = rows_by_field.get(date_field_used) or []
+        if not order_rows and rows_by_field.get("created_at"):
+            date_field_used = "created_at"
+            order_rows = rows_by_field["created_at"]
+        if not order_rows and rows_by_field.get("payment_date"):
+            date_field_used = "payment_date"
+            order_rows = rows_by_field["payment_date"]
+        if not order_rows and rows_by_field.get("created_at_fbits"):
+            date_field_used = "created_at_fbits"
+            order_rows = rows_by_field["created_at_fbits"]
+
         daily_rows = await sb_select(
             "fbits_order_daily_stats",
             select="stat_date,receita_oficial,pedidos",
@@ -268,9 +321,11 @@ async def fbits_debug_data(
             limit=500,
         )
         payload["supabase"]["can_query"] = True
+        payload["date_field_used"] = date_field_used
+        payload["date_field_audit"] = audit
         payload["fbits_orders"] = {
-            "rows": len(order_rows),
-            "revenue": round(sum(_safe_float(row.get("total_value")) for row in order_rows), 2),
+            **_field_audit(date_field_used, order_rows),
+            "date_field_used": date_field_used,
         }
         payload["fbits_order_daily_stats"] = {
             "rows": len(daily_rows),
