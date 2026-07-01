@@ -173,6 +173,13 @@ function pathWithClientId(path: string, clientId?: string | null): string {
   return `${base}?${params.toString()}`;
 }
 
+function withCacheBust(path: string): string {
+  const [base, query = ""] = path.split("?", 2);
+  const params = new URLSearchParams(query);
+  params.set("_ts", String(Date.now()));
+  return `${base}?${params.toString()}`;
+}
+
 async function getAccessToken(): Promise<string | null> {
   if (isLocalAuthEnabled()) return null;
   if (!supabase) {
@@ -1151,7 +1158,12 @@ export async function getFbitsOrdersSummary(
   const fallbackDays =
     typeof period === "number" ? positiveInt(period, 30) : positiveInt(period.days, 30);
   return http<FbitsOrdersSummaryResponse>(
-    pathWithPeriod("/api/fbits/dashboard", period, fallbackDays)
+    withCacheBust(pathWithPeriod("/api/fbits/dashboard", period, fallbackDays)),
+    {
+      headers: {
+        "Cache-Control": "no-cache",
+      },
+    }
   );
 }
 

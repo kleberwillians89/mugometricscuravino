@@ -40,7 +40,7 @@ export default function useDashboardFbits({ isAuthenticated, activeClientId, per
     [activeClientId, rangeKey]
   );
   const [fbitsData, setFbitsData] = useState<FbitsOrdersSummaryResponse | null>(
-    cachedInitial?.summary || null
+    null
   );
   const [fbitsOrders, setFbitsOrders] = useState<FbitsOrdersResponse | null>(
     cachedInitial?.orders || null
@@ -50,7 +50,7 @@ export default function useDashboardFbits({ isAuthenticated, activeClientId, per
 
   useEffect(() => {
     if (cachedInitial) {
-      setFbitsData(cachedInitial.summary);
+      setFbitsData(null);
       setFbitsOrders(cachedInitial.orders);
     }
     setFbitsError(null);
@@ -60,10 +60,9 @@ export default function useDashboardFbits({ isAuthenticated, activeClientId, per
     if (!isAuthenticated || !activeClientId) return null;
     const cached = options?.force ? null : readDashboardCache<FbitsCachePayload>(rangeKey);
     if (cached) {
-      setFbitsData(cached.summary);
       setFbitsOrders(cached.orders);
     }
-    setLoadingFbits(!cached && !cachedInitial);
+    setLoadingFbits(true);
     setFbitsError(null);
     try {
       const [summary, orders] = await Promise.allSettled([
@@ -77,6 +76,7 @@ export default function useDashboardFbits({ isAuthenticated, activeClientId, per
         }),
       ]);
       if (summary.status === "rejected") throw summary.reason;
+      console.log("[google/fbits-dashboard]", summary.value.debug_version, summary.value.debug, summary.value.summary);
       setFbitsData(summary.value);
       let nextOrders = cached?.orders || cachedInitial?.orders || null;
       if (orders.status === "fulfilled") {

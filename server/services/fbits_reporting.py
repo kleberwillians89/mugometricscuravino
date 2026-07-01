@@ -598,6 +598,7 @@ def _summary_from_daily(*, client_id: str, period: FbitsPeriod, rows: List[Dict[
 def _blank_summary_payload(*, client_id: str, period: FbitsPeriod, connected: bool, source: str) -> Dict[str, Any]:
     return {
         "ok": True,
+        "debug_version": "commerce-parser-brl-v2",
         "connected": connected,
         "client_id": client_id,
         "period": {"start": period.start, "end": period.end},
@@ -626,6 +627,7 @@ def _summary_from_dashboard_payload(
     ticket = round(_safe_float(payload.get("indicadorTicketMedio")) or (revenue / orders if orders else 0.0), 2)
     return {
         "ok": True,
+        "debug_version": "commerce-parser-brl-v2",
         "connected": True,
         "client_id": client_id,
         "period": {"start": period.start, "end": period.end},
@@ -1301,8 +1303,21 @@ async def get_official_commerce_summary(*, client_id: str, start: str, end: str)
     else:
         payload = _blank_summary_payload(client_id=client_id, period=period, connected=True, source="fbits_empty")
 
+    payload["debug_version"] = "commerce-parser-brl-v2"
     clean_status_counts = _clean_status_counts(status_counts) or _status_counts_from_orders(api_orders)
     pages_read = _safe_int(status_counts.get("_pages_read"))
+    payload_summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
+    final_revenue = round(_safe_float(payload_summary.get("receita_oficial")), 2)
+    final_orders = _safe_int(payload_summary.get("pedidos"))
+    final_ticket = round(
+        _safe_float(payload_summary.get("ticket_medio")) or (final_revenue / final_orders if final_orders else 0.0),
+        2,
+    )
+    local_revenue = round(
+        sum(_safe_float(row.get("receita_oficial")) for row in local_daily_rows)
+        or sum(_safe_float(row.get("total_value")) for row in local_order_rows),
+        2,
+    )
     payload["top_products"] = top_products
     payload["debug"] = {
         "source": payload.get("source"),
@@ -1333,12 +1348,20 @@ async def get_official_commerce_summary(*, client_id: str, start: str, end: str)
         },
         "status_found": clean_status_counts,
         "top_20_orders": [_safe_order_debug(order) for order in api_orders[:20]],
+        "official_api_revenue": round(dashboard_revenue, 2),
+        "official_api_orders": dashboard_orders,
+        "official_api_average_ticket": round(_safe_float(dashboard_payload.get("indicadorTicketMedio")), 2),
+        "final_revenue": final_revenue,
+        "final_orders": final_orders,
+        "final_average_ticket": final_ticket,
+        "local_revenue": local_revenue,
+        "source_used": payload.get("source"),
+        "fallback_used": payload.get("source") != "fbits_dashboard_api",
     }
-    summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
     print(
         "[fbits][official] "
         f"client_id={client_id} start={period.start} end={period.end} source={payload.get('source')} "
-        f"receita={_safe_float(summary.get('receita_oficial')):.2f} pedidos={_safe_int(summary.get('pedidos'))} "
+        f"receita={_safe_float(payload_summary.get('receita_oficial')):.2f} pedidos={_safe_int(payload_summary.get('pedidos'))} "
         f"api_orders={len(api_orders)} local_orders={len(local_order_rows)}"
     )
     return payload

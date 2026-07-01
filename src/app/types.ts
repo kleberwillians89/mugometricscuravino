@@ -185,6 +185,7 @@ export type FbitsOrdersSummary = {
 
 export type FbitsOrdersSummaryResponse = {
   ok: boolean;
+  debug_version?: string;
   connected: boolean;
   client_id: string;
   period: {
@@ -192,6 +193,18 @@ export type FbitsOrdersSummaryResponse = {
     end: string;
   };
   summary: FbitsOrdersSummary;
+  debug?: {
+    official_api_revenue?: number;
+    official_api_orders?: number;
+    official_api_average_ticket?: number;
+    final_revenue?: number;
+    final_orders?: number;
+    final_average_ticket?: number;
+    local_revenue?: number;
+    source_used?: string;
+    fallback_used?: boolean;
+    [key: string]: unknown;
+  };
   message?: string | null;
 };
 

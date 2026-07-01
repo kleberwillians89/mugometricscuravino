@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi.responses import JSONResponse
 
 from api_support import (
     _log_endpoint_call,
@@ -15,12 +16,18 @@ from services.fbits_reporting import (
     build_fbits_orders_report,
     build_fbits_reconciliation_debug,
     build_fbits_summary,
+    get_official_commerce_summary,
     resolve_fbits_period,
     sync_fbits_orders,
 )
 from services.tenant import resolve_client_id
 
 router = APIRouter(tags=["fbits"])
+
+NO_CACHE_HEADERS = {
+    "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+    "Pragma": "no-cache",
+}
 
 
 async def _fbits_context(
@@ -62,7 +69,7 @@ async def _run_fbits_endpoint(
         )
         period = resolve_fbits_period(start=start, end=end, days=days)
         if operation == "summary":
-            payload = await build_fbits_summary(client_id=cid, period=period)
+            payload = await get_official_commerce_summary(client_id=cid, start=period.start, end=period.end)
         elif operation == "orders":
             payload = await build_fbits_orders_report(client_id=cid, period=period)
         elif operation == "sync":
@@ -117,7 +124,7 @@ async def fbits_dashboard(
     x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
     authorization: str | None = Header(default=None),
 ):
-    return await _run_fbits_endpoint(
+    payload = await _run_fbits_endpoint(
         endpoint="/api/fbits/dashboard",
         client_id=client_id,
         x_client_id=x_client_id,
@@ -127,6 +134,7 @@ async def fbits_dashboard(
         days=days,
         operation="summary",
     )
+    return JSONResponse(content=payload, headers=NO_CACHE_HEADERS)
 
 
 # Compatibilidade com a rota criada durante a primeira leitura FBits.
