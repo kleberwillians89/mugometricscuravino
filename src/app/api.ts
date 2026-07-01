@@ -36,7 +36,7 @@ import {
   getCuravinoClientConfigurationWarning,
   getCuravinoClientId,
 } from "./curavino";
-import { getSelectedPeriodRange } from "./periodRange";
+import { countSelectedPeriodDays, getSelectedPeriodRange } from "./periodRange";
 
 const rawApiBase = String(import.meta.env.VITE_API_BASE || "").trim();
 
@@ -87,20 +87,9 @@ function asString(value: unknown, fallback = ""): string {
   return String(value);
 }
 
-function parseDateInput(value: string): Date | null {
-  const text = String(value || "").trim();
-  if (!text) return null;
-  const parsed = new Date(`${text}T00:00:00`);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
-
 function periodDaysFromRange(start: string, end: string, fallback: number): number {
-  const startDate = parseDateInput(start);
-  const endDate = parseDateInput(end);
-  if (!startDate || !endDate) return fallback;
-  const diff = endDate.getTime() - startDate.getTime();
-  if (!Number.isFinite(diff) || diff < 0) return fallback;
-  return Math.max(1, Math.floor(diff / 86_400_000) + 1);
+  const days = countSelectedPeriodDays({ start, end });
+  return Number.isFinite(days) && days > 0 ? days : fallback;
 }
 
 function positiveInt(value: unknown, fallback: number): number {

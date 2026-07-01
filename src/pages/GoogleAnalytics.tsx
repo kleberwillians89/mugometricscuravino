@@ -179,12 +179,9 @@ function persistGa4ClientId(clientId: string) {
 }
 
 function shortDateLabel(value: string) {
-  const parsed = new Date(`${String(value || "").trim()}T00:00:00`);
-  if (Number.isNaN(parsed.getTime())) return value;
-  return parsed.toLocaleDateString("pt-BR", {
-    day: "2-digit",
-    month: "2-digit",
-  });
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || "").trim());
+  if (!match) return value;
+  return `${match[3]}/${match[2]}`;
 }
 
 function GoogleMetricCard({
@@ -549,10 +546,10 @@ export default function GoogleAnalytics({
   }, [activeGa4ClientId, selectedGa4ClientId]);
 
   useEffect(() => {
-    const startDate = new Date(`${period.start}T00:00:00`);
-    if (Number.isNaN(startDate.getTime())) return;
-    setSelectedMonth(startDate.getMonth() + 1);
-    setSelectedYear(startDate.getFullYear());
+    const match = /^(\d{4})-(\d{2})-\d{2}$/.exec(String(period.start || "").trim());
+    if (!match) return;
+    setSelectedMonth(Number(match[2]));
+    setSelectedYear(Number(match[1]));
     setPreset(resolveInitialPreset(period.start, period.end, periodDays));
   }, [period.end, period.start, periodDays]);
 

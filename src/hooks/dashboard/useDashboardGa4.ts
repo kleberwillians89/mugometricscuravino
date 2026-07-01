@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getGa4Report } from "../../app/api";
 import type { Ga4ReportResponse } from "../../app/types";
+import { countSelectedPeriodDays } from "../../app/periodRange";
 import { ensureDashboardPeriod, type DashboardPeriod } from "./period";
 import {
   buildDashboardCacheKey,
@@ -25,12 +26,7 @@ function isAbortError(error: unknown): boolean {
 }
 
 function periodDays(start: string, end: string): number {
-  const startDate = new Date(`${String(start || "").trim()}T00:00:00`);
-  const endDate = new Date(`${String(end || "").trim()}T00:00:00`);
-  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) return 30;
-  const diff = endDate.getTime() - startDate.getTime();
-  if (!Number.isFinite(diff) || diff < 0) return 30;
-  return Math.max(1, Math.floor(diff / 86_400_000) + 1);
+  return countSelectedPeriodDays({ start, end });
 }
 
 export default function useDashboardGa4({

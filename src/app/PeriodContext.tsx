@@ -7,7 +7,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { countSelectedPeriodDays, getSelectedPeriodRange } from "./periodRange";
+import { buildMonthRange, countSelectedPeriodDays, getSelectedPeriodRange } from "./periodRange";
 
 type Period = {
   start: string;
@@ -32,11 +32,10 @@ function toDateInput(value: Date): string {
   return `${y}-${m}-${d}`;
 }
 
-function safeDate(value: string): Date | null {
+function safeDate(value: string): string | null {
   const trimmed = String(value || "").trim();
   if (!trimmed) return null;
-  const parsed = new Date(`${trimmed}T00:00:00`);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
+  return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : null;
 }
 
 function defaultPeriod(days = 30): Period {
@@ -59,14 +58,8 @@ function currentMonthPeriod(): Period {
 }
 
 function fixedMonthPeriod(year: number, month: number): Period {
-  const safeYear = Math.max(2000, Math.min(2100, Math.floor(year || 0)));
-  const safeMonth = Math.max(1, Math.min(12, Math.floor(month || 1)));
-  const start = new Date(safeYear, safeMonth - 1, 1);
-  const end = new Date(safeYear, safeMonth, 0);
-  return {
-    start: toDateInput(start),
-    end: toDateInput(end),
-  };
+  const range = buildMonthRange(year, month);
+  return { start: range.start, end: range.end };
 }
 
 function readStoredPeriod(): Period {
@@ -95,8 +88,8 @@ export function PeriodProvider({ children }: { children: ReactNode }) {
     const endDate = safeDate(end);
     if (!startDate || !endDate) return;
 
-    const normalizedStart = startDate.getTime() <= endDate.getTime() ? start : end;
-    const normalizedEnd = startDate.getTime() <= endDate.getTime() ? end : start;
+    const normalizedStart = startDate <= endDate ? start : end;
+    const normalizedEnd = startDate <= endDate ? end : start;
 
     const normalized: Period = {
       start: normalizedStart,
