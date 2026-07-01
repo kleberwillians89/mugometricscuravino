@@ -839,6 +839,7 @@ export type StaticReportTopPost = {
 };
 
 export type StaticReportResponse = {
+  debug_version?: string;
   period: {
     start: string;
     end: string;
@@ -851,6 +852,18 @@ export type StaticReportResponse = {
     shipping: number;
     refunds: number;
     top_products: StaticReportTopProduct[];
+    debug?: {
+      official_api_revenue?: number;
+      official_api_orders?: number;
+      official_api_average_ticket?: number;
+      final_revenue?: number;
+      final_orders?: number;
+      final_average_ticket?: number;
+      local_revenue?: number;
+      source_used?: string;
+      fallback_used?: boolean;
+      [key: string]: unknown;
+    };
   };
   traffic: {
     sessions: number;

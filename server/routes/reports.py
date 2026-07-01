@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Header, Query
+from fastapi.responses import JSONResponse
 from fastapi.responses import Response
 
 from api_support import _pick_client_id
@@ -10,6 +11,11 @@ from services.static_reporting import build_static_report
 from services.tenant import resolve_client_id
 
 router = APIRouter()
+
+NO_CACHE_HEADERS = {
+    "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+    "Pragma": "no-cache",
+}
 
 
 @router.get("/api/reports/static")
@@ -21,7 +27,8 @@ async def api_static_report(
     authorization: str | None = Header(default=None),
 ):
     cid = await resolve_client_id(_pick_client_id(client_id, x_client_id), authorization)
-    return await build_static_report(client_id=cid, start=start, end=end)
+    report = await build_static_report(client_id=cid, start=start, end=end)
+    return JSONResponse(content=report, headers=NO_CACHE_HEADERS)
 
 
 async def _resolve_client_name(client_id: str) -> str:

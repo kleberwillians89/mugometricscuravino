@@ -84,6 +84,7 @@ export default function Reports({
     setPeriod(nextPeriod);
     try {
       const next = await getStaticReport(nextPeriod);
+      console.log("[reports/static]", next.debug_version, next.commerce?.debug, next.commerce);
       setReport(next);
     } catch (requestError: unknown) {
       console.warn("[static-report]", requestError);

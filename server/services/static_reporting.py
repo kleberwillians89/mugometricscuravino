@@ -736,6 +736,7 @@ async def build_static_report(*, client_id: str, start: Optional[str], end: Opti
         f"source={commerce.get('source')} fallback_used={str(bool(commerce_debug.get('fallback_used'))).lower()}"
     )
     return {
+        "debug_version": "commerce-parser-brl-v2",
         "period": {
             "start": period_start.isoformat(),
             "end": period_end.isoformat(),

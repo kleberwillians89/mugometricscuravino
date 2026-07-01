@@ -1206,7 +1206,11 @@ export async function getStaticReport(
   if (clientId) params.set("client_id", clientId);
   if (start) params.set("start", start);
   if (end) params.set("end", end);
+  params.set("_ts", String(Date.now()));
   return http<StaticReportResponse>(`/api/reports/static?${params.toString()}`, {
+    headers: {
+      "Cache-Control": "no-cache",
+    },
     signal: options?.signal,
   });
 }
