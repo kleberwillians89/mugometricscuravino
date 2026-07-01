@@ -7,7 +7,7 @@ import DashboardHeader from "../components/dashboard/DashboardHeader";
 import useDashboardGa4 from "../hooks/dashboard/useDashboardGa4";
 import useDashboardFbits from "../hooks/dashboard/useDashboardFbits";
 import FbitsSalesPanel from "../components/dashboard/FbitsSalesPanel";
-import { syncFbits, syncGa4 } from "../app/api";
+import { backfillFbitsOrders, syncFbits, syncGa4 } from "../app/api";
 import { usePeriod } from "../app/PeriodContext";
 import { formatSelectedPeriodLabel, getSelectedPeriodRange } from "../app/periodRange";
 import type {
@@ -36,13 +36,23 @@ type Props = {
 };
 
 type PeriodPreset = "7d" | "30d" | "month" | "specific";
+type FbitsSyncPreset = "selected" | "current_month" | "previous_month" | "last_90_days";
 const GA4_CLIENT_STORAGE_KEY = "mugo_metrics_ga4_client_id";
+const brlFormatter = new Intl.NumberFormat("pt-BR", {
+  style: "currency",
+  currency: "BRL",
+  maximumFractionDigits: 0,
+});
 
 function toDateInput(value: Date) {
   const year = value.getFullYear();
   const month = String(value.getMonth() + 1).padStart(2, "0");
   const day = String(value.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function addDays(value: Date, days: number) {
+  return new Date(value.getFullYear(), value.getMonth(), value.getDate() + days);
 }
 
 function todayDateInput() {
@@ -67,6 +77,44 @@ function resolveInitialPreset(start: string, end: string, days: number): PeriodP
 function toErrorMessage(error: unknown) {
   console.warn("[google-ga4]", error);
   return "Não foi possível atualizar os dados agora. Tente novamente em instantes.";
+}
+
+function resolveFbitsSyncRange(
+  preset: FbitsSyncPreset,
+  selectedRange: { start: string; end: string }
+) {
+  const now = new Date();
+  if (preset === "current_month") {
+    return {
+      start: toDateInput(new Date(now.getFullYear(), now.getMonth(), 1)),
+      end: toDateInput(now),
+    };
+  }
+  if (preset === "previous_month") {
+    return {
+      start: toDateInput(new Date(now.getFullYear(), now.getMonth() - 1, 1)),
+      end: toDateInput(new Date(now.getFullYear(), now.getMonth(), 0)),
+    };
+  }
+  if (preset === "last_90_days") {
+    return {
+      start: toDateInput(addDays(now, -89)),
+      end: toDateInput(now),
+    };
+  }
+  return selectedRange;
+}
+
+function sameRange(a: { start: string; end: string }, b: { start: string; end: string }) {
+  return a.start === b.start && a.end === b.end;
+}
+
+function isFbitsIncomplete(data: unknown) {
+  const record = data && typeof data === "object" ? (data as Record<string, unknown>) : {};
+  const debug = record.debug && typeof record.debug === "object" ? (record.debug as Record<string, unknown>) : {};
+  const source = String(record.source || debug.source_used || debug.source || "").trim();
+  const message = String(record.message || "").toLowerCase();
+  return source === "fbits_incomplete" || message.includes("incomplet");
 }
 
 function formatPct(value: number) {
@@ -458,6 +506,10 @@ export default function GoogleAnalytics({
   const [platformFilter, setPlatformFilter] = useState("");
   const [deviceFilter, setDeviceFilter] = useState("");
   const [syncing, setSyncing] = useState(false);
+  const [fbitsSyncPreset, setFbitsSyncPreset] = useState<FbitsSyncPreset>("selected");
+  const [syncingFbits, setSyncingFbits] = useState(false);
+  const [fbitsSyncMessage, setFbitsSyncMessage] = useState<string | null>(null);
+  const [fbitsSyncError, setFbitsSyncError] = useState<string | null>(null);
   const selectedGa4Client =
     GA4_CLIENT_OPTIONS.find((client) => client.id === selectedGa4ClientId) || GA4_CLIENT_OPTIONS[0];
   const activeGa4ClientId = selectedGa4Client?.id || ACTIVE_CLIENT_ID;
@@ -515,6 +567,7 @@ export default function GoogleAnalytics({
   const lastSyncedLabel =
     formatUpdatedAtLabel(ga4Report?.meta.last_synced_at) || formatUpdatedAtLabel(ga4UpdatedAt);
   const pagePeriodLabel = `${formatDatePtBr(selectedRange.start)} - ${formatDatePtBr(selectedRange.end)}`;
+  const fbitsIncomplete = isFbitsIncomplete(fbitsData);
 
   const dailyRows = ga4Report?.trends.daily || [];
   const trafficChartData = useMemo<ChartData<"line">>(
@@ -728,6 +781,34 @@ export default function GoogleAnalytics({
     }
   }, [activeGa4ClientId, periodDays, reloadFbits, reloadGa4, selectedRange.end, selectedRange.start]);
 
+  const handleFbitsBackfill = useCallback(async () => {
+    const syncRange = resolveFbitsSyncRange(fbitsSyncPreset, selectedRange);
+    setFbitsSyncError(null);
+    setFbitsSyncMessage(null);
+    setSyncingFbits(true);
+    try {
+      const payload = await backfillFbitsOrders({
+        start: syncRange.start,
+        end: syncRange.end,
+      }, {
+        clientId: activeGa4ClientId,
+      });
+      const periodLabel = `${formatDatePtBr(syncRange.start)} - ${formatDatePtBr(syncRange.end)}`;
+      const revenueLabel = brlFormatter.format(Number(payload.revenue_total || 0));
+      setFbitsSyncMessage(
+        `Sincronização concluída: ${payload.orders_saved} pedidos, ${payload.items_saved} itens e ${revenueLabel} em ${periodLabel}.`
+      );
+      if (sameRange(syncRange, selectedRange)) {
+        await reloadFbits({ force: true });
+      }
+    } catch (error: unknown) {
+      console.warn("[google/fbits-backfill]", error);
+      setFbitsSyncError("Não foi possível sincronizar a FBits agora. Verifique a conexão e tente novamente.");
+    } finally {
+      setSyncingFbits(false);
+    }
+  }, [activeGa4ClientId, fbitsSyncPreset, reloadFbits, selectedRange]);
+
   function handleGa4ClientChange(nextClientId: string) {
     setSelectedGa4ClientId(nextClientId);
     persistGa4ClientId(nextClientId);
@@ -929,7 +1010,38 @@ export default function GoogleAnalytics({
               <div className="h1">Comercial</div>
               <div className="p">Leitura oficial de vendas separada dos sinais de comportamento do GA4.</div>
             </div>
+            <div className="googleFbitsSyncControls">
+              <label className="googleFbitsSyncSelect">
+                <span>Sincronizar</span>
+                <select
+                  className="select"
+                  value={fbitsSyncPreset}
+                  onChange={(event) => setFbitsSyncPreset(event.target.value as FbitsSyncPreset)}
+                  disabled={syncingFbits}
+                >
+                  <option value="selected">Período selecionado</option>
+                  <option value="current_month">Mês atual</option>
+                  <option value="previous_month">Mês anterior</option>
+                  <option value="last_90_days">Últimos 90 dias</option>
+                </select>
+              </label>
+              <button
+                className="googleFbitsSyncButton"
+                type="button"
+                onClick={handleFbitsBackfill}
+                disabled={syncingFbits || loadingFbits}
+              >
+                {syncingFbits ? "Sincronizando..." : "Sincronizar FBits"}
+              </button>
+            </div>
           </div>
+          {fbitsIncomplete ? (
+            <div className="googleFeedbackCard isWarning">
+              Dados FBits incompletos para este período. Clique em Sincronizar FBits.
+            </div>
+          ) : null}
+          {fbitsSyncError ? <div className="googleFeedbackCard isError">{fbitsSyncError}</div> : null}
+          {fbitsSyncMessage ? <div className="googleFeedbackCard isSuccess">{fbitsSyncMessage}</div> : null}
           <FbitsSalesPanel data={fbitsData} orders={fbitsOrders} loading={loadingFbits} error={fbitsError} />
         </section>
 

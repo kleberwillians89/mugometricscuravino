@@ -209,6 +209,28 @@ export type FbitsOrdersSummaryResponse = {
   message?: string | null;
 };
 
+export type FbitsBackfillResponse = {
+  ok: boolean;
+  connected: boolean;
+  client_id: string;
+  period: {
+    start: string;
+    end: string;
+  };
+  orders_saved: number;
+  items_saved: number;
+  daily_rows: number;
+  revenue_total: number;
+  average_ticket: number;
+  sync?: {
+    orders_upserted?: number;
+    items_upserted?: number;
+    daily_upserted?: number;
+    daily_source?: string | null;
+  };
+  message?: string | null;
+};
+
 export type FbitsOrderRow = {
   pedido_id: string;
   pedido_codigo?: string | null;

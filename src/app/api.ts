@@ -18,6 +18,7 @@ import type {
   Ga4EventGroupItem,
   Ga4EventRow,
   Ga4ReportResponse,
+  FbitsBackfillResponse,
   FbitsOrdersResponse,
   FbitsOrdersSummaryResponse,
   ShopifyCustomersResponse,
@@ -1201,6 +1202,27 @@ export async function syncFbits(
   if (clientId) params.set("client_id", clientId);
   return http<JsonRecord>(`/api/fbits/sync?${params.toString()}`, {
     method: "POST",
+  });
+}
+
+export async function backfillFbitsOrders(
+  period: PeriodQueryInput,
+  options?: { clientId?: string | null }
+): Promise<FbitsBackfillResponse> {
+  const params = new URLSearchParams();
+  const start = asString(period.start).trim();
+  const end = asString(period.end).trim();
+  const days = positiveInt(period.days, 30);
+  const clientId = asString(options?.clientId).trim() || getCuravinoClientId();
+  if (start) params.set("start", start);
+  if (end) params.set("end", end);
+  if (!start || !end) params.set("days", String(days));
+  if (clientId) params.set("client_id", clientId);
+  return http<FbitsBackfillResponse>(`/api/fbits/backfill-orders?${params.toString()}`, {
+    method: "POST",
+    headers: {
+      "Cache-Control": "no-cache",
+    },
   });
 }
 
