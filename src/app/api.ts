@@ -1153,7 +1153,8 @@ export async function getShopifyCustomers(
 }
 
 export async function getFbitsOrdersSummary(
-  period: number | PeriodQueryInput = 30
+  period: number | PeriodQueryInput = 30,
+  options?: RequestSignalOptions
 ): Promise<FbitsOrdersSummaryResponse> {
   const fallbackDays =
     typeof period === "number" ? positiveInt(period, 30) : positiveInt(period.days, 30);
@@ -1163,16 +1164,26 @@ export async function getFbitsOrdersSummary(
       headers: {
         "Cache-Control": "no-cache",
       },
+      signal: options?.signal,
     }
   );
 }
 
 export async function getFbitsOrders(
-  period: number | PeriodQueryInput = 30
+  period: number | PeriodQueryInput = 30,
+  options?: RequestSignalOptions
 ): Promise<FbitsOrdersResponse> {
   const fallbackDays =
     typeof period === "number" ? positiveInt(period, 30) : positiveInt(period.days, 30);
-  return http<FbitsOrdersResponse>(pathWithPeriod("/api/fbits/orders", period, fallbackDays));
+  return http<FbitsOrdersResponse>(
+    withCacheBust(pathWithPeriod("/api/fbits/orders", period, fallbackDays)),
+    {
+      headers: {
+        "Cache-Control": "no-cache",
+      },
+      signal: options?.signal,
+    }
+  );
 }
 
 export async function syncFbits(

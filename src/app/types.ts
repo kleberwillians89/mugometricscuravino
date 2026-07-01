@@ -193,6 +193,7 @@ export type FbitsOrdersSummaryResponse = {
     end: string;
   };
   summary: FbitsOrdersSummary;
+  source?: string;
   debug?: {
     official_api_revenue?: number;
     official_api_orders?: number;
