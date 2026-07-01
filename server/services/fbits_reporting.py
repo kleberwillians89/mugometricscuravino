@@ -13,6 +13,7 @@ from .fbits_client import (
     fetch_fbits_orders,
     fetch_fbits_orders_with_diagnostics,
     fetch_fbits_revenue_dashboard,
+    fetch_fbits_revenue_dashboard_with_debug,
 )
 from .ig_supabase import sb_select, sb_upsert
 
@@ -22,6 +23,7 @@ APPROVED_ORDER_STATUS_IDS = {
     for value in FBITS_APPROVED_ORDER_STATUSES.split(",")
     if value.strip().isdigit()
 }
+FBITS_LOCAL_FALLBACK_MIN_ORDERS = 10
 
 
 def _safe_str(value: Any) -> str:
@@ -970,6 +972,40 @@ async def sync_fbits_orders(*, client_id: str, period: FbitsPeriod) -> Dict[str,
     }
 
 
+async def backfill_fbits_orders(*, client_id: str, period: FbitsPeriod) -> Dict[str, Any]:
+    sync_payload = await sync_fbits_orders(client_id=client_id, period=period)
+    persisted = await _read_persisted_orders(client_id=client_id, period=period)
+    order_ids = {_safe_str(row.get("order_id")) for row in persisted if _safe_str(row.get("order_id"))}
+    try:
+        persisted_items = await _read_persisted_items(client_id=client_id, order_ids=order_ids)
+    except httpx.HTTPStatusError as exc:
+        if _is_schema_pending_error(exc, "fbits_order_items"):
+            persisted_items = []
+        else:
+            raise
+    daily_rows = await _read_persisted_daily(client_id=client_id, period=period)
+    revenue = round(sum(_safe_float(row.get("total_value")) for row in persisted), 2)
+    orders = len(persisted)
+    return {
+        "ok": True,
+        "connected": sync_payload.get("connected", True),
+        "client_id": client_id,
+        "period": {"start": period.start, "end": period.end},
+        "orders_saved": orders,
+        "items_saved": len(persisted_items),
+        "daily_rows": len(daily_rows),
+        "revenue_total": revenue,
+        "average_ticket": round(revenue / orders, 2) if orders else 0.0,
+        "sync": {
+            "orders_upserted": sync_payload.get("orders_upserted", 0),
+            "items_upserted": sync_payload.get("items_upserted", 0),
+            "daily_upserted": sync_payload.get("daily_upserted", 0),
+            "daily_source": sync_payload.get("daily_source"),
+        },
+        "message": sync_payload.get("message"),
+    }
+
+
 def _value_fields(order: Dict[str, Any]) -> List[str]:
     return [
         key
@@ -1205,10 +1241,13 @@ async def get_official_commerce_summary(*, client_id: str, start: str, end: str)
     local_order_rows: List[Dict[str, Any]] = []
     persisted_items: List[Dict[str, Any]] = []
 
+    dashboard_debug: Dict[str, Any] = {}
     try:
-        dashboard_payload = await fetch_fbits_revenue_dashboard(start=period.start, end=period.end)
+        dashboard_payload, dashboard_debug = await fetch_fbits_revenue_dashboard_with_debug(start=period.start, end=period.end)
     except httpx.HTTPError as exc:
         dashboard_error = exc.__class__.__name__
+        debug_from_exc = getattr(exc, "fbits_debug", None)
+        dashboard_debug = debug_from_exc if isinstance(debug_from_exc, dict) else {}
         print(
             "[fbits][official][dashboard_error] "
             f"client_id={client_id} start={period.start} end={period.end} error={exc}"
@@ -1286,6 +1325,17 @@ async def get_official_commerce_summary(*, client_id: str, start: str, end: str)
 
     dashboard_revenue = _safe_float(dashboard_payload.get("indicadorReceita"))
     dashboard_orders = _safe_int(dashboard_payload.get("indicadorPedido"))
+    local_orders_count = len(local_order_rows)
+    local_daily_orders = sum(_safe_int(row.get("pedidos")) for row in local_daily_rows)
+    local_orders_revenue = round(sum(_safe_float(row.get("total_value")) for row in local_order_rows), 2)
+    local_daily_revenue = round(sum(_safe_float(row.get("receita_oficial")) for row in local_daily_rows), 2)
+    local_supabase_complete = (
+        dashboard_error is None
+        or (
+            local_orders_count >= FBITS_LOCAL_FALLBACK_MIN_ORDERS
+            and (not local_daily_orders or local_orders_count >= local_daily_orders)
+        )
+    )
     if dashboard_payload and (dashboard_revenue > 0 or dashboard_orders > 0):
         payload = _summary_from_dashboard_payload(
             client_id=client_id,
@@ -1293,6 +1343,9 @@ async def get_official_commerce_summary(*, client_id: str, start: str, end: str)
             payload=dashboard_payload,
             details=detail_metrics,
         )
+    elif dashboard_error and not local_supabase_complete:
+        payload = _blank_summary_payload(client_id=client_id, period=period, connected=True, source="fbits_incomplete")
+        payload["message"] = "Dados FBits incompletos no período. Execute sincronização."
     elif local_daily_summary and (
         _safe_float(local_daily_summary["summary"].get("receita_oficial"))
         or _safe_int(local_daily_summary["summary"].get("pedidos"))
@@ -1314,8 +1367,7 @@ async def get_official_commerce_summary(*, client_id: str, start: str, end: str)
         2,
     )
     local_revenue = round(
-        sum(_safe_float(row.get("receita_oficial")) for row in local_daily_rows)
-        or sum(_safe_float(row.get("total_value")) for row in local_order_rows),
+        local_daily_revenue or local_orders_revenue,
         2,
     )
     payload["top_products"] = top_products
@@ -1327,6 +1379,11 @@ async def get_official_commerce_summary(*, client_id: str, start: str, end: str)
             "dashboard_orders": dashboard_orders,
             "dashboard_ticket": round(_safe_float(dashboard_payload.get("indicadorTicketMedio")), 2),
             "dashboard_error": dashboard_error,
+            "dashboard_debug": dashboard_debug,
+            "status_code": dashboard_debug.get("status_code"),
+            "endpoint": dashboard_debug.get("endpoint"),
+            "params": dashboard_debug.get("params"),
+            "response_excerpt": dashboard_debug.get("response_excerpt"),
             "orders_returned": len(api_orders),
             "pages_read": pages_read,
             "pages_read_estimate": ((len(api_orders) + 49) // 50) if api_orders else 0,
@@ -1336,15 +1393,14 @@ async def get_official_commerce_summary(*, client_id: str, start: str, end: str)
         },
         "local": {
             "daily_rows": len(local_daily_rows),
-            "daily_revenue": round(
-                sum(_safe_float(row.get("receita_oficial")) for row in local_daily_rows),
-                2,
-            ),
-            "daily_orders": sum(_safe_int(row.get("pedidos")) for row in local_daily_rows),
+            "daily_revenue": local_daily_revenue,
+            "daily_orders": local_daily_orders,
             "orders_rows": len(local_order_rows),
-            "orders_revenue": round(sum(_safe_float(row.get("total_value")) for row in local_order_rows), 2),
-            "orders_count": len(local_order_rows),
+            "orders_revenue": local_orders_revenue,
+            "orders_count": local_orders_count,
             "items_rows": len(persisted_items),
+            "complete": local_supabase_complete,
+            "min_orders_for_fallback": FBITS_LOCAL_FALLBACK_MIN_ORDERS,
         },
         "status_found": clean_status_counts,
         "top_20_orders": [_safe_order_debug(order) for order in api_orders[:20]],
@@ -1355,6 +1411,7 @@ async def get_official_commerce_summary(*, client_id: str, start: str, end: str)
         "final_orders": final_orders,
         "final_average_ticket": final_ticket,
         "local_revenue": local_revenue,
+        "local_complete": local_supabase_complete,
         "source_used": payload.get("source"),
         "fallback_used": payload.get("source") != "fbits_dashboard_api",
     }

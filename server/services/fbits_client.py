@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from datetime import date
 from typing import Any, Dict, Iterable, List, Tuple
 
 import httpx
@@ -24,6 +25,13 @@ def _safe_str(value: Any) -> str:
     return str(value or "").strip()
 
 
+def _safe_response_excerpt(response: httpx.Response | None, limit: int = 500) -> str:
+    if response is None:
+        return ""
+    text = str(response.text or "").replace("\n", " ").replace("\r", " ").strip()
+    return text[:limit]
+
+
 def get_fbits_config() -> Dict[str, str]:
     return {
         "token": _env("CURAVINO_FBITS_API_TOKEN"),
@@ -41,6 +49,43 @@ def _authorization_value(token: str) -> str:
     if raw.lower().startswith("basic "):
         return raw
     return f"Basic {raw}"
+
+
+def _date_br(value: str) -> str:
+    try:
+        parsed = date.fromisoformat(str(value or "")[:10])
+    except ValueError:
+        return value
+    return parsed.strftime("%d/%m/%Y")
+
+
+def _dashboard_param_attempts(*, start: str, end: str) -> List[Dict[str, str]]:
+    return [
+        {
+            "dataInicial": start,
+            "dataFinal": end,
+            "dataInicialComparativo": start,
+            "dataFinalComparativo": end,
+        },
+        {
+            "dataInicial": _date_br(start),
+            "dataFinal": _date_br(end),
+            "dataInicialComparativo": _date_br(start),
+            "dataFinalComparativo": _date_br(end),
+        },
+        {
+            "DataInicial": start,
+            "DataFinal": end,
+            "DataInicialComparativo": start,
+            "DataFinalComparativo": end,
+        },
+        {
+            "DataInicial": _date_br(start),
+            "DataFinal": _date_br(end),
+            "DataInicialComparativo": _date_br(start),
+            "DataFinalComparativo": _date_br(end),
+        },
+    ]
 
 
 def _orders_from_payload(payload: Any) -> List[Dict[str, Any]]:
@@ -471,25 +516,73 @@ async def fetch_fbits_orders(*, start: str, end: str, page_limit: int = 200) -> 
     return rows
 
 
-async def fetch_fbits_revenue_dashboard(*, start: str, end: str) -> Dict[str, Any]:
+async def fetch_fbits_revenue_dashboard_with_debug(*, start: str, end: str) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     config = get_fbits_config()
     if not config["token"]:
-        return {}
+        return {}, {
+            "endpoint": "/dashboard/faturamento",
+            "configured": False,
+            "params": {},
+            "attempts": [],
+        }
     base_url = config["base_url"].rstrip("/")
+    endpoint = f"{base_url}/dashboard/faturamento"
+    attempts: List[Dict[str, Any]] = []
+    last_error: httpx.HTTPStatusError | None = None
     async with httpx.AsyncClient(timeout=45) as client:
-        response = await client.get(
-            f"{base_url}/dashboard/faturamento",
-            headers={
-                "Accept": "application/json",
-                "Authorization": _authorization_value(config["token"]),
-            },
-            params={
-                "dataInicial": start,
-                "dataFinal": end,
-                "dataInicialComparativo": start,
-                "dataFinalComparativo": end,
-            },
-        )
-        response.raise_for_status()
-    payload = response.json()
-    return payload if isinstance(payload, dict) else {}
+        for params in _dashboard_param_attempts(start=start, end=end):
+            response: httpx.Response | None = None
+            try:
+                response = await client.get(
+                    endpoint,
+                    headers={
+                        "Accept": "application/json",
+                        "Authorization": _authorization_value(config["token"]),
+                    },
+                    params=params,
+                )
+                response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                last_error = exc
+                attempts.append(
+                    {
+                        "status_code": exc.response.status_code if exc.response is not None else None,
+                        "endpoint": "/dashboard/faturamento",
+                        "params": params,
+                        "response_excerpt": _safe_response_excerpt(exc.response),
+                    }
+                )
+                continue
+            payload = response.json()
+            debug = {
+                "configured": True,
+                "status_code": response.status_code,
+                "endpoint": "/dashboard/faturamento",
+                "params": params,
+                "attempts": attempts,
+                "response_excerpt": "",
+            }
+            return payload if isinstance(payload, dict) else {}, debug
+
+    if last_error is not None:
+        setattr(last_error, "fbits_debug", {
+            "configured": True,
+            "endpoint": "/dashboard/faturamento",
+            "params": attempts[-1].get("params") if attempts else {},
+            "attempts": attempts,
+            "status_code": attempts[-1].get("status_code") if attempts else None,
+            "response_excerpt": attempts[-1].get("response_excerpt") if attempts else "",
+        })
+        raise last_error
+    return {}, {
+        "configured": True,
+        "endpoint": "/dashboard/faturamento",
+        "params": {},
+        "attempts": attempts,
+        "response_excerpt": "",
+    }
+
+
+async def fetch_fbits_revenue_dashboard(*, start: str, end: str) -> Dict[str, Any]:
+    payload, _debug = await fetch_fbits_revenue_dashboard_with_debug(start=start, end=end)
+    return payload

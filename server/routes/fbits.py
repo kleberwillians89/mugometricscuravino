@@ -12,6 +12,7 @@ from api_support import (
     _structured_error_response,
 )
 from services.fbits_reporting import (
+    backfill_fbits_orders,
     build_fbits_orders_debug,
     build_fbits_orders_report,
     build_fbits_reconciliation_debug,
@@ -74,6 +75,8 @@ async def _run_fbits_endpoint(
             payload = await build_fbits_orders_report(client_id=cid, period=period)
         elif operation == "sync":
             payload = await sync_fbits_orders(client_id=cid, period=period)
+        elif operation == "backfill":
+            payload = await backfill_fbits_orders(client_id=cid, period=period)
         elif operation == "debug":
             payload = await build_fbits_orders_debug(client_id=cid, period=period)
         else:
@@ -199,6 +202,28 @@ async def fbits_sync(
         days=days,
         operation="sync",
     )
+
+
+@router.post("/api/fbits/backfill-orders")
+async def fbits_backfill_orders(
+    client_id: str | None = Query(default=None),
+    start: str | None = Query(default=None),
+    end: str | None = Query(default=None),
+    days: int = Query(default=30, ge=1, le=366),
+    x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+    authorization: str | None = Header(default=None),
+):
+    payload = await _run_fbits_endpoint(
+        endpoint="/api/fbits/backfill-orders",
+        client_id=client_id,
+        x_client_id=x_client_id,
+        authorization=authorization,
+        start=start,
+        end=end,
+        days=days,
+        operation="backfill",
+    )
+    return JSONResponse(content=payload, headers=NO_CACHE_HEADERS)
 
 
 @router.get("/api/fbits/debug/orders")
