@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 
 from fastapi import APIRouter, Header, HTTPException, Query
 from fastapi.responses import JSONResponse
@@ -14,6 +14,7 @@ from api_support import (
     _structured_error_response,
 )
 from services.fbits_client import check_fbits_health
+from services.ig_supabase import sb_select
 from services.fbits_reporting import (
     backfill_fbits_orders,
     build_fbits_orders_debug,
@@ -32,6 +33,41 @@ NO_CACHE_HEADERS = {
     "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
     "Pragma": "no-cache",
 }
+
+
+def _safe_float(value) -> float:
+    try:
+        if value is None or value == "":
+            return 0.0
+        if isinstance(value, (int, float)):
+            return float(value)
+        text = str(value).strip().replace("R$", "").replace(" ", "")
+        if "," in text and "." in text and text.rfind(",") > text.rfind("."):
+            text = text.replace(".", "").replace(",", ".")
+        elif "," in text:
+            text = text.replace(",", ".")
+        return float("".join(char for char in text if char.isdigit() or char in {".", "-"}) or 0)
+    except Exception:
+        return 0.0
+
+
+def _safe_error(exc: Exception) -> str:
+    response = getattr(exc, "response", None)
+    status_code = getattr(response, "status_code", None)
+    body = str(getattr(response, "text", "") or "").replace("\n", " ").replace("\r", " ").strip()
+    if len(body) > 300:
+        body = f"{body[:300]}..."
+    if status_code:
+        return f"{exc.__class__.__name__}: status={status_code} body={body or '-'}"
+    return f"{exc.__class__.__name__}: {str(exc)[:300]}"
+
+
+def _end_exclusive(value: str) -> str:
+    try:
+        parsed = date.fromisoformat(str(value or "")[:10])
+    except ValueError:
+        parsed = date.today()
+    return (parsed + timedelta(days=1)).isoformat()
 
 
 async def _fbits_context(
@@ -159,6 +195,90 @@ async def fbits_health(
     today = date.today().isoformat()
     payload = await check_fbits_health(start=start or today, end=end or start or today)
     payload["client_id"] = cid
+    return JSONResponse(content=payload, headers=NO_CACHE_HEADERS)
+
+
+@router.get("/api/fbits/debug-data")
+async def fbits_debug_data(
+    client_id: str | None = Query(default=None),
+    start: str | None = Query(default=None),
+    end: str | None = Query(default=None),
+    x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+    authorization: str | None = Header(default=None),
+):
+    cid = await _fbits_context(
+        client_id=client_id,
+        x_client_id=x_client_id,
+        authorization=authorization,
+    )
+    today = date.today().isoformat()
+    start_value = (start or today)[:10]
+    end_value = (end or start or today)[:10]
+    end_exclusive = _end_exclusive(end_value)
+    payload = {
+        "ok": True,
+        "client_id": cid,
+        "period": {
+            "start": start_value,
+            "end": end_value,
+            "start_inclusive": f"{start_value}T00:00:00",
+            "end_exclusive": f"{end_exclusive}T00:00:00",
+        },
+        "supabase": {
+            "can_query": False,
+            "error": None,
+        },
+        "fbits_orders": {
+            "rows": 0,
+            "revenue": 0.0,
+        },
+        "fbits_order_daily_stats": {
+            "rows": 0,
+            "revenue": 0.0,
+        },
+        "debug_version": "fbits-supabase-debug-v1",
+    }
+    try:
+        order_rows = await sb_select(
+            "fbits_orders",
+            select="order_id,total_value,order_date,approved_at",
+            filters={
+                "client_id": f"eq.{cid}",
+                "and": f"(order_date.gte.{start_value}T00:00:00,order_date.lt.{end_exclusive}T00:00:00)",
+            },
+            limit=20000,
+        )
+        if not order_rows:
+            order_rows = await sb_select(
+                "fbits_orders",
+                select="order_id,total_value,order_date,approved_at",
+                filters={
+                    "client_id": f"eq.{cid}",
+                    "and": f"(approved_at.gte.{start_value}T00:00:00,approved_at.lt.{end_exclusive}T00:00:00)",
+                },
+                limit=20000,
+            )
+        daily_rows = await sb_select(
+            "fbits_order_daily_stats",
+            select="stat_date,receita_oficial,pedidos",
+            filters={
+                "client_id": f"eq.{cid}",
+                "and": f"(stat_date.gte.{start_value},stat_date.lte.{end_value})",
+            },
+            limit=500,
+        )
+        payload["supabase"]["can_query"] = True
+        payload["fbits_orders"] = {
+            "rows": len(order_rows),
+            "revenue": round(sum(_safe_float(row.get("total_value")) for row in order_rows), 2),
+        }
+        payload["fbits_order_daily_stats"] = {
+            "rows": len(daily_rows),
+            "revenue": round(sum(_safe_float(row.get("receita_oficial")) for row in daily_rows), 2),
+        }
+    except Exception as exc:
+        payload["ok"] = False
+        payload["supabase"]["error"] = _safe_error(exc)
     return JSONResponse(content=payload, headers=NO_CACHE_HEADERS)
 
 

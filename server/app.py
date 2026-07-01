@@ -35,7 +35,8 @@ from services.comments import get_comments
 from services.dashboard_paid import get_paid_dashboard, get_summary_dashboard, list_ads, list_campaigns
 from services.ig_dashboard import get_dashboard
 from services.ig_months import get_months
-from services.ig_supabase import sb_query
+from services.fbits_client import get_fbits_config
+from services.ig_supabase import sb_query, sb_select
 from services.media import get_media, get_media_monthly
 from services.notes import create_note, list_notes, update_note
 from services.stories import get_stories
@@ -98,6 +99,9 @@ async def startup_bootstrap():
             print(f"[startup] bootstrap meta aplicado: {', '.join(applied)}")
     except Exception as exc:
         print(f"[startup] bootstrap meta falhou: {exc}")
+    print("[startup] registered routes:")
+    for route in app.routes:
+        print(getattr(route, "path", str(route)))
 
 
 @app.get("/")
@@ -108,6 +112,57 @@ def root():
 @app.get("/health")
 def health():
     return {"ok": True}
+
+
+def _safe_health_error(exc: Exception) -> str:
+    response = getattr(exc, "response", None)
+    status_code = getattr(response, "status_code", None)
+    body = str(getattr(response, "text", "") or "").replace("\n", " ").replace("\r", " ").strip()
+    if len(body) > 300:
+        body = f"{body[:300]}..."
+    if status_code:
+        return f"{exc.__class__.__name__}: status={status_code} body={body or '-'}"
+    return f"{exc.__class__.__name__}: {str(exc)[:300]}"
+
+
+@app.get("/api/health")
+async def api_health():
+    supabase_url_present = bool((os.getenv("SUPABASE_URL") or "").strip())
+    supabase_service_role_present = bool((os.getenv("SUPABASE_SERVICE_ROLE_KEY") or "").strip())
+    supabase_error = ""
+    supabase_can_query = False
+    if supabase_url_present and supabase_service_role_present:
+        try:
+            await sb_select("clients", select="id", limit=1)
+            supabase_can_query = True
+        except Exception as exc:
+            supabase_error = _safe_health_error(exc)
+    else:
+        missing = []
+        if not supabase_url_present:
+            missing.append("SUPABASE_URL")
+        if not supabase_service_role_present:
+            missing.append("SUPABASE_SERVICE_ROLE_KEY")
+        supabase_error = f"Variáveis ausentes: {', '.join(missing)}"
+
+    fbits_config = get_fbits_config()
+    fbits_token_present = bool(fbits_config.get("token"))
+    return {
+        "ok": True,
+        "commit": "1b4fc1a",
+        "routes": ["fbits", "reports"],
+        "supabase": {
+            "configured": supabase_url_present and supabase_service_role_present,
+            "url_present": supabase_url_present,
+            "service_role_present": supabase_service_role_present,
+            "can_query": supabase_can_query,
+            "error": supabase_error or None,
+        },
+        "fbits": {
+            "configured": fbits_token_present,
+            "token_present": fbits_token_present,
+        },
+    }
 
 app.include_router(shopify_router)
 app.include_router(google_router)
