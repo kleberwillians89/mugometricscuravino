@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import date
+
 from fastapi import APIRouter, Header, HTTPException, Query
 from fastapi.responses import JSONResponse
 
@@ -11,6 +13,7 @@ from api_support import (
     _started,
     _structured_error_response,
 )
+from services.fbits_client import check_fbits_health
 from services.fbits_reporting import (
     backfill_fbits_orders,
     build_fbits_orders_debug,
@@ -137,6 +140,25 @@ async def fbits_dashboard(
         days=days,
         operation="summary",
     )
+    return JSONResponse(content=payload, headers=NO_CACHE_HEADERS)
+
+
+@router.get("/api/fbits/health")
+async def fbits_health(
+    client_id: str | None = Query(default=None),
+    start: str | None = Query(default=None),
+    end: str | None = Query(default=None),
+    x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+    authorization: str | None = Header(default=None),
+):
+    cid = await _fbits_context(
+        client_id=client_id,
+        x_client_id=x_client_id,
+        authorization=authorization,
+    )
+    today = date.today().isoformat()
+    payload = await check_fbits_health(start=start or today, end=end or start or today)
+    payload["client_id"] = cid
     return JSONResponse(content=payload, headers=NO_CACHE_HEADERS)
 
 

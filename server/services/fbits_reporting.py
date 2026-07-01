@@ -9,6 +9,7 @@ import httpx
 from .fbits_client import (
     FBITS_APPROVED_ORDER_STATUSES,
     FBITS_APPROVED_ORDER_STATUS_IDS,
+    FBITS_MISSING_TOKEN_MESSAGE,
     fbits_is_configured,
     fetch_fbits_orders,
     fetch_fbits_orders_with_diagnostics,
@@ -1230,7 +1231,28 @@ async def build_fbits_orders_report(*, client_id: str, period: FbitsPeriod) -> D
 async def get_official_commerce_summary(*, client_id: str, start: str, end: str) -> Dict[str, Any]:
     period = resolve_fbits_period(start=start, end=end)
     if not fbits_is_configured():
-        return _blank_summary_payload(client_id=client_id, period=period, connected=False, source="none")
+        payload = _blank_summary_payload(client_id=client_id, period=period, connected=False, source="none")
+        payload["message"] = FBITS_MISSING_TOKEN_MESSAGE
+        payload["debug"] = {
+            "source": "none",
+            "fbits_api": {
+                "dashboard_error": "missing_token",
+                "error": FBITS_MISSING_TOKEN_MESSAGE,
+                "endpoint": "/dashboard/faturamento",
+                "params": {},
+                "response_excerpt": "",
+            },
+            "official_api_revenue": 0.0,
+            "official_api_orders": 0,
+            "official_api_average_ticket": 0.0,
+            "final_revenue": 0.0,
+            "final_orders": 0,
+            "final_average_ticket": 0.0,
+            "local_revenue": 0.0,
+            "source_used": "none",
+            "fallback_used": False,
+        }
+        return payload
 
     dashboard_payload: Dict[str, Any] = {}
     dashboard_error: str | None = None

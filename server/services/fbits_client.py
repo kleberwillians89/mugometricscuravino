@@ -15,6 +15,7 @@ FBITS_APPROVED_ORDER_STATUS_IDS = tuple(
     if value.strip()
 )
 FBITS_ORDER_PAGE_SIZE = 50
+FBITS_MISSING_TOKEN_MESSAGE = "FBits token ausente. Configure CURAVINO_FBITS_API_TOKEN no ambiente."
 
 
 def _env(name: str) -> str:
@@ -33,8 +34,10 @@ def _safe_response_excerpt(response: httpx.Response | None, limit: int = 500) ->
 
 
 def get_fbits_config() -> Dict[str, str]:
+    token = _env("CURAVINO_FBITS_API_TOKEN") or _env("FBITS_API_TOKEN")
     return {
-        "token": _env("CURAVINO_FBITS_API_TOKEN"),
+        "token": token,
+        "token_env": "CURAVINO_FBITS_API_TOKEN" if _env("CURAVINO_FBITS_API_TOKEN") else ("FBITS_API_TOKEN" if token else ""),
         "store_id": _env("CURAVINO_FBITS_STORE_ID"),
         "base_url": _env("CURAVINO_FBITS_BASE_URL") or "https://api.fbits.net",
     }
@@ -522,6 +525,7 @@ async def fetch_fbits_revenue_dashboard_with_debug(*, start: str, end: str) -> T
         return {}, {
             "endpoint": "/dashboard/faturamento",
             "configured": False,
+            "error": FBITS_MISSING_TOKEN_MESSAGE,
             "params": {},
             "attempts": [],
         }
@@ -586,3 +590,42 @@ async def fetch_fbits_revenue_dashboard_with_debug(*, start: str, end: str) -> T
 async def fetch_fbits_revenue_dashboard(*, start: str, end: str) -> Dict[str, Any]:
     payload, _debug = await fetch_fbits_revenue_dashboard_with_debug(start=start, end=end)
     return payload
+
+
+async def check_fbits_health(*, start: str, end: str) -> Dict[str, Any]:
+    config = get_fbits_config()
+    token_present = bool(config["token"])
+    base_url_present = bool(config["base_url"])
+    payload: Dict[str, Any] = {}
+    debug: Dict[str, Any] = {}
+    status_code = None
+    error = ""
+    can_call_dashboard = False
+
+    if not token_present:
+        error = FBITS_MISSING_TOKEN_MESSAGE
+    else:
+        try:
+            _payload, debug = await fetch_fbits_revenue_dashboard_with_debug(start=start, end=end)
+            status_code = debug.get("status_code")
+            can_call_dashboard = status_code is not None and int(status_code) < 400
+        except httpx.HTTPStatusError as exc:
+            debug_from_exc = getattr(exc, "fbits_debug", None)
+            debug = debug_from_exc if isinstance(debug_from_exc, dict) else {}
+            status_code = debug.get("status_code") or (exc.response.status_code if exc.response is not None else None)
+            error = f"FBits dashboard HTTPStatusError: {status_code or 'sem status'}"
+        except httpx.HTTPError as exc:
+            error = f"FBits dashboard HTTPError: {exc.__class__.__name__}"
+
+    return {
+        "configured": token_present and base_url_present,
+        "token_present": token_present,
+        "base_url_present": base_url_present,
+        "can_call_dashboard": can_call_dashboard,
+        "status_code": status_code,
+        "error": error or debug.get("error") or None,
+        "debug_version": "fbits-token-env-v1",
+        "endpoint": debug.get("endpoint") or "/dashboard/faturamento",
+        "params": debug.get("params") or {},
+        "response_excerpt": debug.get("response_excerpt") or "",
+    }
