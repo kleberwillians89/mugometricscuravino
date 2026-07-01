@@ -17,6 +17,7 @@ import Login from "./pages/Login";
 import Onboarding from "./pages/Onboarding";
 import Dashboard from "./pages/Dashboard";
 import GoogleAnalytics from "./pages/GoogleAnalytics";
+import Reports from "./pages/Reports";
 import DashboardErrorBoundary from "./components/dashboard/DashboardErrorBoundary";
 
 type AppView = "loading" | "login" | "setup" | "dashboard";
@@ -428,6 +429,14 @@ export default function App() {
           isAuthenticated={!!session || localMode}
           onLogout={handleLogout}
           onOpenDashboard={() => openRoute("dashboard")}
+          onOpenReports={() => openRoute("reports")}
+        />
+      ) : route === "reports" ? (
+        <Reports
+          isAuthenticated={!!session || localMode}
+          onLogout={handleLogout}
+          onOpenDashboard={() => openRoute("dashboard")}
+          onOpenGoogleAnalytics={() => openRoute("google")}
         />
       ) : (
         <Dashboard
@@ -436,6 +445,7 @@ export default function App() {
           bootstrapError={bootError}
           onOpenSetup={() => setView("setup")}
           onOpenGoogleAnalytics={() => openRoute("google")}
+          onOpenReports={() => openRoute("reports")}
         />
       )}
     </DashboardErrorBoundary>

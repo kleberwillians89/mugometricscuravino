@@ -6,3 +6,4 @@ supabase
 cryptography
 google-auth
 requests
+reportlab

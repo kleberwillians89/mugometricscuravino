@@ -25,6 +25,7 @@ from api_support import (
 from routes.google import router as google_router
 from routes.fbits import router as fbits_router
 from routes.meta_legacy import router as meta_legacy_router
+from routes.reports import router as reports_router
 from routes.shopify import router as shopify_router
 
 from services.ai_summary import ai_summary
@@ -111,6 +112,7 @@ def health():
 app.include_router(shopify_router)
 app.include_router(google_router)
 app.include_router(fbits_router)
+app.include_router(reports_router)
 app.include_router(meta_legacy_router)
 
 

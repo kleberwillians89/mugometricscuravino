@@ -788,3 +788,104 @@ export type PaidDashboardResponse = {
     };
   };
 };
+
+// =========================
+// Static executive reports
+// =========================
+export type StaticReportTopProduct = {
+  product_id?: string | null;
+  variant_id?: string | null;
+  title: string;
+  quantity: number;
+  revenue: number;
+};
+
+export type StaticReportChannel = {
+  source_medium: string;
+  source?: string | null;
+  medium?: string | null;
+  sessions: number;
+  active_users: number;
+  total_users: number;
+  event_count: number;
+  purchases: number;
+  revenue: number;
+};
+
+export type StaticReportCampaign = {
+  campaign_id?: string | null;
+  campaign_name: string;
+  spend: number;
+  impressions: number;
+  reach: number;
+  clicks: number;
+  conversions: number;
+  revenue: number;
+  cpc: number;
+  cpm: number;
+  ctr: number;
+  roas: number;
+};
+
+export type StaticReportTopPost = {
+  media_id: string;
+  caption?: string | null;
+  permalink?: string | null;
+  media_type?: string | null;
+  timestamp?: string | null;
+  reach: number;
+  impressions: number;
+  engagements: number;
+};
+
+export type StaticReportResponse = {
+  period: {
+    start: string;
+    end: string;
+  };
+  commerce: {
+    revenue: number;
+    orders: number;
+    average_ticket: number;
+    discounts: number;
+    shipping: number;
+    refunds: number;
+    top_products: StaticReportTopProduct[];
+  };
+  traffic: {
+    sessions: number;
+    active_users: number;
+    total_users: number;
+    event_count: number;
+    add_to_cart: number;
+    begin_checkout: number;
+    purchases: number;
+    revenue: number;
+    channels: StaticReportChannel[];
+  };
+  paid_media: {
+    spend: number;
+    impressions: number;
+    reach: number;
+    clicks: number;
+    cpm: number;
+    cpc: number;
+    ctr: number;
+    conversions: number;
+    revenue: number;
+    roas: number;
+    campaigns: StaticReportCampaign[];
+  };
+  instagram: {
+    followers_start: number;
+    followers_end: number;
+    followers_growth: number;
+    reach: number;
+    impressions: number;
+    profile_views: number;
+    website_clicks: number;
+    engagements: number;
+    top_posts: StaticReportTopPost[];
+  };
+  insights: string[];
+};

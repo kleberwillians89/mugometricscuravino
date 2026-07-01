@@ -1,5 +1,5 @@
 type Props = {
-  activeView: "meta" | "google";
+  activeView: "meta" | "google" | "reports";
   statusChips: Array<{
     label: string;
     connected?: boolean;
@@ -12,6 +12,7 @@ type Props = {
   aiLoading?: boolean;
   onOpenMeta?: () => void;
   onOpenGoogleAnalytics?: () => void;
+  onOpenReports?: () => void;
   onRefresh?: () => void;
   onAi?: () => void;
   onLogout: () => void | Promise<void>;
@@ -27,6 +28,7 @@ export default function DashboardHeader({
   aiLoading = false,
   onOpenMeta,
   onOpenGoogleAnalytics,
+  onOpenReports,
   onRefresh,
   onAi,
   onLogout,
@@ -88,6 +90,16 @@ export default function DashboardHeader({
               type="button"
             >
               Dados Google / FBits
+            </button>
+          ) : null}
+          {onOpenReports ? (
+            <button
+              aria-current={activeView === "reports" ? "page" : undefined}
+              className="btn btnGhost"
+              onClick={onOpenReports}
+              type="button"
+            >
+              Relatórios
             </button>
           ) : null}
           {onRefresh ? (

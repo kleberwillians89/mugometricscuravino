@@ -23,6 +23,7 @@ import type {
   ShopifyCustomersResponse,
   ShopifyReportResponse,
   StoriesResponse,
+  StaticReportResponse,
   MediaResponse,
   MediaMonthlyResponse,
   MonthsResponse,
@@ -1191,6 +1192,76 @@ export async function getGa4Report(
     { signal: options?.signal }
   );
   return normalizeGa4Report(raw);
+}
+
+export async function getStaticReport(
+  period: PeriodQueryInput,
+  options?: ClientRequestOptions
+): Promise<StaticReportResponse> {
+  const params = new URLSearchParams();
+  const selectedRange = getSelectedPeriodRange(period);
+  const start = asString(selectedRange.start || period.start).trim();
+  const end = asString(selectedRange.end || period.end).trim();
+  const clientId = asString(options?.clientId || getCuravinoClientId()).trim();
+  if (clientId) params.set("client_id", clientId);
+  if (start) params.set("start", start);
+  if (end) params.set("end", end);
+  return http<StaticReportResponse>(`/api/reports/static?${params.toString()}`, {
+    signal: options?.signal,
+  });
+}
+
+function filenameFromContentDisposition(value: string | null): string | null {
+  const header = String(value || "").trim();
+  if (!header) return null;
+  const utfMatch = header.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utfMatch?.[1]) return decodeURIComponent(utfMatch[1].replace(/"/g, ""));
+  const match = header.match(/filename="?([^";]+)"?/i);
+  return match?.[1] || null;
+}
+
+export async function getStaticReportPdf(
+  period: PeriodQueryInput,
+  options?: ClientRequestOptions
+): Promise<{ blob: Blob; filename: string }> {
+  const token = await getAccessToken();
+  if (!token && !isLocalAuthEnabled()) {
+    throw new Error("Sessão expirada. Faça login novamente.");
+  }
+
+  const params = new URLSearchParams();
+  const selectedRange = getSelectedPeriodRange(period);
+  const start = asString(selectedRange.start || period.start).trim();
+  const end = asString(selectedRange.end || period.end).trim();
+  const clientId = asString(options?.clientId || getCuravinoClientId()).trim();
+  if (clientId) params.set("client_id", clientId);
+  if (start) params.set("start", start);
+  if (end) params.set("end", end);
+
+  const headers = new Headers();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  headers.set("X-Client-Id", clientId || getCuravinoClientId());
+
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/api/reports/static/pdf?${params.toString()}`, {
+      headers,
+      signal: options?.signal,
+    });
+  } catch (error: unknown) {
+    if (error instanceof Error && error.name === "AbortError") throw error;
+    throw new Error("Não foi possível baixar o PDF agora.");
+  }
+
+  if (!res.ok) {
+    throw new Error(res.status === 401 ? "Sua sessão precisa ser renovada." : "Não foi possível gerar o PDF agora.");
+  }
+
+  const blob = await res.blob();
+  return {
+    blob,
+    filename: filenameFromContentDisposition(res.headers.get("content-disposition")) || "relatorio-performance.pdf",
+  };
 }
 
 export async function getGa4Channels(

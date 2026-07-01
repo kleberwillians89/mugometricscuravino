@@ -31,6 +31,7 @@ import "../styles/google-analytics.css";
 type Props = {
   onLogout: () => void | Promise<void>;
   onOpenDashboard: () => void;
+  onOpenReports?: () => void;
   isAuthenticated?: boolean;
 };
 
@@ -439,6 +440,7 @@ function GoogleAnalyticsSkeleton() {
 export default function GoogleAnalytics({
   onLogout,
   onOpenDashboard,
+  onOpenReports,
   isAuthenticated = false,
 }: Props) {
   const { period, periodDays, setCurrentMonthPeriod, setMonthPeriod, setPresetPeriod } = usePeriod();
@@ -776,6 +778,7 @@ export default function GoogleAnalytics({
           onLogout={onLogout}
           onOpenGoogleAnalytics={() => {}}
           onOpenMeta={onOpenDashboard}
+          onOpenReports={onOpenReports}
           onRefresh={handleRefresh}
           onSelectPeriodPreset={(nextPreset) => handlePresetChange(nextPreset)}
           periodPreset={preset === "specific" ? "custom" : preset}

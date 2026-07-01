@@ -998,6 +998,7 @@ type DashboardProps = {
   bootstrapError?: string | null;
   onOpenSetup?: () => void;
   onOpenGoogleAnalytics?: () => void;
+  onOpenReports?: () => void;
 };
 
 export default function Dashboard({
@@ -1006,6 +1007,7 @@ export default function Dashboard({
   bootstrapError,
   onOpenSetup,
   onOpenGoogleAnalytics,
+  onOpenReports,
 }: DashboardProps) {
   const [syncing, setSyncing] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -2030,6 +2032,7 @@ export default function Dashboard({
           backgroundRefreshing={refreshingSummary || refreshingMonthly || refreshingPaid}
           onOpenMeta={() => {}}
           onOpenGoogleAnalytics={onOpenGoogleAnalytics}
+          onOpenReports={onOpenReports}
           refreshing={syncing}
           onRefresh={onRefresh}
           aiLoading={SHOW_PRESENTATION_EXTRAS ? aiLoading : false}

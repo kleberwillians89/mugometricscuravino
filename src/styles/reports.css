@@ -1,0 +1,244 @@
+.staticReportPage{
+  display: grid;
+  gap: 16px;
+  width: 100%;
+}
+
+.staticReportActions{
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.staticReportToolbar{
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px;
+  border: 1px solid rgba(91,31,42,.12);
+  border-radius: 8px;
+  background: rgba(255,255,255,.78);
+  box-shadow: 0 16px 42px rgba(48,31,33,.07);
+}
+
+.staticReportEyebrow{
+  color: #7b2d3b;
+  font-size: .78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.staticReportToolbar h1{
+  margin: 2px 0 4px;
+  color: #1a1718;
+  font-size: clamp(1.6rem, 2.6vw, 2.35rem);
+  line-height: 1.05;
+}
+
+.staticReportToolbar p{
+  margin: 0;
+  color: rgba(29,27,26,.62);
+}
+
+.staticReportControls{
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.staticReportControls label{
+  display: grid;
+  gap: 5px;
+  color: rgba(29,27,26,.68);
+  font-size: .78rem;
+  font-weight: 800;
+}
+
+.staticReportControls input{
+  min-height: 39px;
+  border: 1px solid rgba(91,31,42,.18);
+  border-radius: 8px;
+  background: #fff;
+  color: #1d1b1a;
+  padding: 0 10px;
+}
+
+.staticReportMetrics{
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.staticReportMetric,
+.staticReportPanel,
+.staticReportInsights,
+.staticReportInitial,
+.staticReportFeedback{
+  border: 1px solid rgba(91,31,42,.12);
+  border-radius: 8px;
+  background: rgba(255,255,255,.86);
+  box-shadow: 0 12px 30px rgba(48,31,33,.07);
+}
+
+.staticReportMetric{
+  display: grid;
+  gap: 6px;
+  min-height: 118px;
+  padding: 14px;
+}
+
+.staticReportMetric span,
+.staticReportMetric small{
+  color: rgba(29,27,26,.58);
+  font-size: .78rem;
+  font-weight: 800;
+}
+
+.staticReportMetric strong{
+  color: #1d1b1a;
+  font-size: clamp(1.25rem, 1.6vw, 1.75rem);
+  line-height: 1;
+}
+
+.staticReportGrid{
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.staticReportPanel,
+.staticReportInsights{
+  min-width: 0;
+  padding: 14px;
+}
+
+.staticReportPanel header,
+.staticReportInsights header{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.staticReportPanel h2,
+.staticReportInsights h2{
+  margin: 0;
+  color: #1d1b1a;
+  font-size: 1rem;
+}
+
+.staticReportPanel header span,
+.staticReportInsights header span{
+  color: rgba(29,27,26,.56);
+  font-size: .78rem;
+  font-weight: 800;
+}
+
+.staticReportTableWrap{
+  overflow-x: auto;
+}
+
+.staticReportTableWrap table{
+  width: 100%;
+  min-width: 520px;
+  border-collapse: collapse;
+  color: #1d1b1a;
+}
+
+.staticReportTableWrap th,
+.staticReportTableWrap td{
+  padding: 10px 8px;
+  border-bottom: 1px solid rgba(91,31,42,.09);
+  text-align: left;
+  vertical-align: top;
+}
+
+.staticReportTableWrap th{
+  color: rgba(29,27,26,.58);
+  font-size: .74rem;
+  text-transform: uppercase;
+}
+
+.staticReportTableWrap td{
+  font-size: .88rem;
+}
+
+.staticReportTableWrap td:not(:first-child),
+.staticReportTableWrap th:not(:first-child){
+  text-align: right;
+}
+
+.staticReportTableWrap a{
+  color: #7b2d3b;
+  font-weight: 700;
+}
+
+.staticReportEmptyCell{
+  color: rgba(29,27,26,.52);
+  text-align: center !important;
+}
+
+.staticReportInsights ul{
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.staticReportInsights li{
+  padding: 11px 12px;
+  border: 1px solid rgba(91,31,42,.1);
+  border-radius: 8px;
+  background: rgba(123,45,59,.05);
+  color: rgba(29,27,26,.78);
+}
+
+.staticReportInitial,
+.staticReportFeedback{
+  padding: 18px;
+  color: rgba(29,27,26,.68);
+}
+
+.staticReportFeedback{
+  border-color: rgba(154,42,42,.22);
+  background: rgba(154,42,42,.08);
+  color: #7a2323;
+}
+
+@media (max-width: 1180px){
+  .staticReportMetrics{
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 860px){
+  .staticReportToolbar{
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .staticReportControls{
+    justify-content: stretch;
+  }
+
+  .staticReportControls label,
+  .staticReportControls .btn{
+    flex: 1 1 150px;
+  }
+
+  .staticReportGrid{
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 620px){
+  .staticReportMetrics{
+    grid-template-columns: 1fr;
+  }
+}
