@@ -463,17 +463,30 @@ def _is_schema_pending_error(exc: httpx.HTTPStatusError, *names: str) -> bool:
 
 
 async def _read_persisted_orders(*, client_id: str, period: FbitsPeriod) -> List[Dict[str, Any]]:
-    return await sb_select(
+    select = (
+        "client_id,order_id,order_code,customer_id,customer_name,customer_email,status_id,status_name,"
+        "order_date,approved_at,total_value,products_count,payment_method,payment_status,raw,created_at,updated_at"
+    )
+    rows = await sb_select(
         "fbits_orders",
-        select=(
-            "client_id,order_id,order_code,customer_id,customer_name,customer_email,status_id,status_name,"
-            "order_date,approved_at,total_value,products_count,payment_method,payment_status,raw,created_at,updated_at"
-        ),
+        select=select,
         filters={
             "client_id": f"eq.{client_id}",
             "and": _period_filter(period, "order_date"),
         },
         order="order_date.desc",
+        limit=10000,
+    )
+    if rows:
+        return rows
+    return await sb_select(
+        "fbits_orders",
+        select=select,
+        filters={
+            "client_id": f"eq.{client_id}",
+            "and": _period_filter(period, "approved_at"),
+        },
+        order="approved_at.desc",
         limit=10000,
     )
 
@@ -1097,6 +1110,24 @@ async def build_fbits_summary(*, client_id: str, period: FbitsPeriod) -> Dict[st
             if details["produtos_vendidos"]:
                 summary["summary"]["produtos_vendidos"] = details["produtos_vendidos"]
         return summary
+    try:
+        detailed_rows = await _read_persisted_orders(client_id=client_id, period=period)
+    except httpx.HTTPStatusError as exc:
+        if _is_schema_pending_error(exc, "payment_method", "payment_status", "fbits_orders"):
+            print(
+                "[fbits][summary][schema_pending] "
+                f"client_id={client_id} missing=fbits_orders.payment_columns"
+            )
+        else:
+            print(f"[fbits][summary][orders_fallback_error] client_id={client_id} status={exc.response.status_code}")
+        detailed_rows = []
+    if detailed_rows:
+        items = [_persisted_order_item(row) for row in detailed_rows]
+        return {
+            **_summary_from_orders(client_id=client_id, period=period, orders=items),
+            "connected": True,
+            "source": "supabase_orders",
+        }
     return {
         **_summary_from_orders(client_id=client_id, period=period, orders=[]),
         "connected": True,

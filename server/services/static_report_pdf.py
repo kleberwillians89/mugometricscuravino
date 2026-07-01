@@ -6,7 +6,7 @@ from typing import Any, Dict, Iterable, List
 import re
 
 from reportlab.lib import colors
-from reportlab.lib.enums import TA_LEFT, TA_RIGHT
+from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
@@ -28,6 +28,8 @@ MUTED = colors.HexColor("#66707a")
 PAPER = colors.HexColor("#f6f4f0")
 CARD = colors.HexColor("#ffffff")
 STROKE = colors.HexColor("#d9dee3")
+SOFT_BLUE = colors.HexColor("#edf5f8")
+SOFT_GOLD = colors.HexColor("#fbf5e8")
 
 
 def _safe_str(value: Any, fallback: str = "") -> str:
@@ -125,8 +127,8 @@ def _styles() -> Dict[str, ParagraphStyle]:
             "h1",
             parent=base["Heading1"],
             fontName="Helvetica-Bold",
-            fontSize=19,
-            leading=24,
+            fontSize=20,
+            leading=25,
             textColor=MUGO_BLUE_DARK,
             spaceBefore=4,
             spaceAfter=10,
@@ -140,6 +142,33 @@ def _styles() -> Dict[str, ParagraphStyle]:
             textColor=INK,
             spaceBefore=8,
             spaceAfter=6,
+        ),
+        "kicker": ParagraphStyle(
+            "kicker",
+            parent=base["BodyText"],
+            fontName="Helvetica-Bold",
+            fontSize=7.4,
+            leading=9,
+            textColor=MUGO_GOLD,
+            uppercase=True,
+            spaceAfter=3,
+        ),
+        "callout_title": ParagraphStyle(
+            "callout_title",
+            parent=base["BodyText"],
+            fontName="Helvetica-Bold",
+            fontSize=10,
+            leading=13,
+            textColor=MUGO_BLUE_DARK,
+            spaceAfter=4,
+        ),
+        "callout_body": ParagraphStyle(
+            "callout_body",
+            parent=base["BodyText"],
+            fontName="Helvetica",
+            fontSize=8.7,
+            leading=12.5,
+            textColor=INK,
         ),
         "body": ParagraphStyle(
             "body",
@@ -196,9 +225,18 @@ def _styles() -> Dict[str, ParagraphStyle]:
             "metric_value",
             parent=base["BodyText"],
             fontName="Helvetica-Bold",
-            fontSize=15,
-            leading=18,
+            fontSize=16,
+            leading=19,
             textColor=MUGO_BLUE_DARK,
+        ),
+        "center_muted": ParagraphStyle(
+            "center_muted",
+            parent=base["BodyText"],
+            fontName="Helvetica",
+            fontSize=8.2,
+            leading=11,
+            textColor=MUTED,
+            alignment=TA_CENTER,
         ),
         "right": ParagraphStyle(
             "right",
@@ -219,14 +257,18 @@ def _p(text: Any, style: ParagraphStyle) -> Paragraph:
 def _cover_canvas(canvas, doc, client_name: str, period_label: str) -> None:
     width, height = A4
     canvas.saveState()
-    canvas.setFillColor(PAPER)
-    canvas.rect(0, 0, width, height, fill=1, stroke=0)
     canvas.setFillColor(MUGO_BLUE_DARK)
-    canvas.rect(0, height * 0.38, width, height * 0.62, fill=1, stroke=0)
+    canvas.rect(0, 0, width, height, fill=1, stroke=0)
     canvas.setFillColor(MUGO_BLUE)
-    canvas.rect(0, height * 0.38, width, 18 * mm, fill=1, stroke=0)
+    canvas.rect(0, 0, width, height * 0.28, fill=1, stroke=0)
+    canvas.setStrokeColor(colors.Color(1, 1, 1, alpha=0.08))
+    for offset in range(-120, 520, 42):
+        canvas.line(offset, 0, offset + 260, height)
     canvas.setFillColor(MUGO_GOLD)
-    canvas.rect(24 * mm, height * 0.38 - 1.2 * mm, 54 * mm, 2.4 * mm, fill=1, stroke=0)
+    canvas.rect(24 * mm, 54 * mm, 74 * mm, 2.2 * mm, fill=1, stroke=0)
+    canvas.circle(width - 38 * mm, height - 68 * mm, 28 * mm, fill=0, stroke=1)
+    canvas.setStrokeColor(MUGO_GOLD)
+    canvas.circle(width - 38 * mm, height - 68 * mm, 18 * mm, fill=0, stroke=1)
     canvas.setFillColor(colors.white)
     canvas.setFont("Helvetica-Bold", 8)
     canvas.drawString(24 * mm, height - 25 * mm, "MUGO METRICS")
@@ -243,8 +285,8 @@ def _page_canvas(canvas, doc) -> None:
     canvas.line(18 * mm, 14 * mm, width - 18 * mm, 14 * mm)
     canvas.setFillColor(MUTED)
     canvas.setFont("Helvetica", 7)
-    canvas.drawString(18 * mm, 9 * mm, "Mugo Metrics")
-    canvas.drawRightString(width - 18 * mm, 9 * mm, str(doc.page))
+    canvas.drawString(18 * mm, 9 * mm, "Mugo Metrics · Relatorio de Performance")
+    canvas.drawRightString(width - 18 * mm, 9 * mm, f"pagina {doc.page}")
     canvas.restoreState()
 
 
@@ -261,14 +303,15 @@ def _metric_table(metrics: Iterable[tuple[str, str, str]]) -> Table:
             row.append(["", "", ""])
     table = Table(rows, colWidths=[55 * mm, 55 * mm, 55 * mm], hAlign="LEFT")
     commands = [
-        ("BACKGROUND", (0, 0), (-1, -1), CARD),
+        ("BACKGROUND", (0, 0), (-1, -1), colors.white),
         ("BOX", (0, 0), (-1, -1), 0.5, STROKE),
-        ("INNERGRID", (0, 0), (-1, -1), 0.5, STROKE),
+        ("INNERGRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e8edf1")),
+        ("LINEABOVE", (0, 0), (-1, 0), 2.0, MUGO_GOLD),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 8),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-        ("TOPPADDING", (0, 0), (-1, -1), 8),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+        ("LEFTPADDING", (0, 0), (-1, -1), 9),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 9),
+        ("TOPPADDING", (0, 0), (-1, -1), 9),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 9),
     ]
     table.setStyle(TableStyle(commands))
     return table
@@ -289,9 +332,9 @@ def _data_table(headers: List[str], rows: List[List[Any]], widths: List[float], 
             [
                 ("BACKGROUND", (0, 0), (-1, 0), MUGO_BLUE),
                 ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-                ("BACKGROUND", (0, 1), (-1, -1), CARD),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f8fafb")]),
                 ("BOX", (0, 0), (-1, -1), 0.5, STROKE),
-                ("INNERGRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#edf0f2")),
+                ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#edf0f2")),
                 ("VALIGN", (0, 0), (-1, -1), "TOP"),
                 ("LEFTPADDING", (0, 0), (-1, -1), 6),
                 ("RIGHTPADDING", (0, 0), (-1, -1), 6),
@@ -306,7 +349,31 @@ def _data_table(headers: List[str], rows: List[List[Any]], widths: List[float], 
 
 def _section_intro(title: str, subtitle: str) -> List[Any]:
     styles = _styles()
-    return [_p(title, styles["h1"]), _p(subtitle, styles["muted"]), Spacer(1, 5 * mm)]
+    return [_p("MUGO METRICS", styles["kicker"]), _p(title, styles["h1"]), _p(subtitle, styles["muted"]), Spacer(1, 5 * mm)]
+
+
+def _callout(title: str, body: str, *, tone: str = "blue") -> Table:
+    styles = _styles()
+    bg = SOFT_GOLD if tone == "gold" else SOFT_BLUE
+    table = Table(
+        [[_p(title, styles["callout_title"])], [_p(body, styles["callout_body"])]],
+        colWidths=[165 * mm],
+        hAlign="LEFT",
+    )
+    table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, -1), bg),
+                ("BOX", (0, 0), (-1, -1), 0.6, colors.HexColor("#d8e2e8")),
+                ("LINEBEFORE", (0, 0), (0, -1), 3, MUGO_GOLD if tone == "gold" else MUGO_BLUE),
+                ("LEFTPADDING", (0, 0), (-1, -1), 10),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+                ("TOPPADDING", (0, 0), (-1, -1), 8),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+            ]
+        )
+    )
+    return table
 
 
 def _has_any(data: Dict[str, Any], keys: Iterable[str]) -> bool:
@@ -332,22 +399,36 @@ def build_static_report_pdf(report: Dict[str, Any], *, client_name: str) -> byte
     paid = report.get("paid_media") if isinstance(report.get("paid_media"), dict) else {}
     instagram = report.get("instagram") if isinstance(report.get("instagram"), dict) else {}
     insights = report.get("insights") if isinstance(report.get("insights"), list) else []
+    previous_commerce = report.get("previous_commerce") if isinstance(report.get("previous_commerce"), dict) else {}
+    source_label = _safe_str(commerce.get("source_label"), "fonte oficial")
+    official_revenue = _safe_float(commerce.get("revenue"))
+    ga4_revenue = _safe_float(traffic.get("revenue"))
+    revenue_gap = ga4_revenue - official_revenue
 
     story: List[Any] = [
-        Spacer(1, 78 * mm),
+        Spacer(1, 70 * mm),
         _p(client_name, styles["cover_client"]),
         _p("Relatorio de Performance", styles["cover_title"]),
         _p(period_label, styles["cover_meta"]),
-        Spacer(1, 80 * mm),
-        _p("Mugo Metrics", ParagraphStyle("signature", parent=styles["cover_meta"], fontName="Helvetica-Bold")),
+        Spacer(1, 88 * mm),
+        _p("Performance, atribuicao e proximos passos", styles["cover_meta"]),
+        _p("Mugo Metrics", ParagraphStyle("signature", parent=styles["cover_meta"], fontName="Helvetica-Bold", fontSize=12)),
         PageBreak(),
     ]
 
-    story.extend(_section_intro("Resumo executivo", "Leitura consolidada dos principais sinais de performance no periodo selecionado."))
+    story.extend(_section_intro("Sumario executivo", "Leitura consolidada dos principais sinais de performance no periodo selecionado."))
+    story.append(
+        _callout(
+            "Leitura principal",
+            f"A receita oficial do periodo vem de {source_label}. As tabelas de aquisicao usam GA4 como leitura de atribuicao, nao como fonte fiscal de faturamento.",
+            tone="gold",
+        )
+    )
+    story.append(Spacer(1, 6 * mm))
     story.append(
         _metric_table(
             [
-                ("Receita commerce", _fmt_money(commerce.get("revenue")), f"{_fmt_number(commerce.get('orders'))} pedidos"),
+                ("Receita oficial", _fmt_money(commerce.get("revenue")), f"{source_label} · {_fmt_number(commerce.get('orders'))} pedidos"),
                 ("Ticket medio", _fmt_money(commerce.get("average_ticket")), f"{_fmt_money(commerce.get('refunds'))} em reembolsos"),
                 ("Sessoes GA4", _fmt_number(traffic.get("sessions")), f"{_fmt_number(traffic.get('purchases'))} compras"),
                 ("Investimento Meta", _fmt_money(paid.get("spend")), f"ROAS {_fmt_decimal(paid.get('roas'))}"),
@@ -358,18 +439,22 @@ def build_static_report_pdf(report: Dict[str, Any], *, client_name: str) -> byte
     )
     story.append(Spacer(1, 8 * mm))
 
-    story.extend(_section_intro("Comercial / Shopify", "Performance comercial capturada no periodo."))
+    story.extend(_section_intro("Performance comercial oficial", f"Receita e pedidos oficiais capturados pela fonte comercial ativa: {source_label}."))
     if _has_any(commerce, ("revenue", "orders", "average_ticket")):
         story.append(
             _metric_table(
                 [
                     ("Receita", _fmt_money(commerce.get("revenue")), "vendas registradas"),
                     ("Pedidos", _fmt_number(commerce.get("orders")), "pedidos validos"),
-                    ("Descontos", _fmt_money(commerce.get("discounts")), "incentivos comerciais"),
+                    ("Produtos vendidos", _fmt_number(commerce.get("products_sold")), "itens oficiais"),
                 ]
             )
         )
         story.append(Spacer(1, 5 * mm))
+        if _safe_float(previous_commerce.get("revenue")) > 0:
+            delta = ((_safe_float(commerce.get("revenue")) - _safe_float(previous_commerce.get("revenue"))) / _safe_float(previous_commerce.get("revenue"))) * 100
+            story.append(_callout("Comparativo", f"Receita oficial variou {delta:.1f}% em relacao ao periodo anterior equivalente.", tone="blue"))
+            story.append(Spacer(1, 5 * mm))
     story.append(
         _data_table(
             ["Produto", "Qtd.", "Receita"],
@@ -384,7 +469,7 @@ def build_static_report_pdf(report: Dict[str, Any], *, client_name: str) -> byte
     )
     story.append(PageBreak())
 
-    story.extend(_section_intro("Trafego / GA4", "Origem e qualidade das sessoes registradas pelo Google Analytics."))
+    story.extend(_section_intro("Trafego e aquisicao", "Origem e qualidade das sessoes registradas pelo Google Analytics."))
     if _has_any(traffic, ("sessions", "active_users", "event_count")):
         story.append(
             _metric_table(
@@ -410,13 +495,22 @@ def build_static_report_pdf(report: Dict[str, Any], *, client_name: str) -> byte
     )
     story.append(Spacer(1, 7 * mm))
     story.extend(_section_intro("Origem das Vendas", "Consolidacao editorial dos canais que mais contribuiram para compras e receita."))
+    if official_revenue > 0 and ga4_revenue > 0:
+        story.append(
+            _callout(
+                "Receita oficial x receita atribuida",
+                f"{source_label}: {_fmt_money(official_revenue)} oficiais. GA4: {_fmt_money(ga4_revenue)} atribuidos. Diferenca: {_fmt_money(abs(revenue_gap))} {'acima no GA4' if revenue_gap >= 0 else 'abaixo no GA4'}.",
+                tone="gold",
+            )
+        )
+        story.append(Spacer(1, 5 * mm))
     top_channels = [
         item for item in (traffic.get("channels") or [])[:5]
         if isinstance(item, dict)
     ]
     if top_channels:
         for item in top_channels:
-            story.append(_p(f"{_safe_str(item.get('source_medium'), 'Canal nao identificado')}: {_fmt_number(item.get('purchases'))} compras, {_fmt_money(item.get('revenue'))} em receita.", styles["body"]))
+            story.append(_p(f"{_safe_str(item.get('source_medium'), 'Canal nao identificado')}: {_fmt_number(item.get('purchases'))} compras, {_fmt_money(item.get('revenue'))} em receita atribuida.", styles["body"]))
     else:
         story.append(_p("Dados indisponiveis para o periodo selecionado.", styles["muted"]))
     story.append(PageBreak())
@@ -472,12 +566,22 @@ def build_static_report_pdf(report: Dict[str, Any], *, client_name: str) -> byte
         )
     )
     story.append(Spacer(1, 8 * mm))
-    story.extend(_section_intro("Insights e Proximos Passos", "Pontos de atencao para orientar decisoes do proximo ciclo."))
+    story.extend(_section_intro("Diagnostico executivo", "Pontos de atencao para orientar decisoes do proximo ciclo."))
     if insights:
-        for index, insight in enumerate(insights[:8], start=1):
+        for index, insight in enumerate(insights[:6], start=1):
             story.append(_p(f"{index}. {_safe_str(insight)}", styles["body"]))
     else:
         story.append(_p("Dados indisponiveis para o periodo selecionado.", styles["muted"]))
+    story.append(Spacer(1, 7 * mm))
+    story.extend(_section_intro("Proximos passos", "Acoes recomendadas para transformar a leitura em melhoria operacional."))
+    next_steps = [
+        "Validar diariamente a sincronizacao FBits para manter receita oficial e pedidos atualizados.",
+        "Usar GA4 para priorizar canais de aquisicao, mantendo FBits como fonte oficial de faturamento.",
+        "Revisar o funil entre carrinho, checkout e compra antes de ampliar investimento.",
+        "Escalar campanhas com melhor ROAS e reduzir verba em origens sem retorno atribuido.",
+    ]
+    for index, step in enumerate(next_steps, start=1):
+        story.append(_p(f"{index}. {step}", styles["body"]))
 
     doc.build(
         story,

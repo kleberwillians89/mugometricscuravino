@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
+from .fbits_reporting import build_fbits_orders_report, build_fbits_summary, resolve_fbits_period
 from .ig_supabase import sb_select
 
 
@@ -102,12 +103,16 @@ async def _safe_select(
 
 def _blank_commerce() -> Dict[str, Any]:
     return {
+        "source": "none",
+        "source_label": "Indisponivel",
         "revenue": 0.0,
         "orders": 0,
         "average_ticket": 0.0,
         "discounts": 0.0,
         "shipping": 0.0,
         "refunds": 0.0,
+        "customers": 0,
+        "products_sold": 0,
         "top_products": [],
     }
 
@@ -164,7 +169,74 @@ def _sort_by_number(rows: List[Dict[str, Any]], key: str, limit: int) -> List[Di
     return sorted(rows, key=lambda row: _safe_float(row.get(key)), reverse=True)[:limit]
 
 
+def _previous_period(start: date, end: date) -> tuple[date, date]:
+    days = max(1, (end - start).days + 1)
+    prev_end = start - timedelta(days=1)
+    prev_start = prev_end - timedelta(days=days - 1)
+    return prev_start, prev_end
+
+
 async def build_commerce_block(client_id: str, start: date, end: date) -> Dict[str, Any]:
+    fbits_block = await _build_fbits_commerce_block(client_id, start, end)
+    if _safe_float(fbits_block.get("revenue")) > 0 or _safe_int(fbits_block.get("orders")) > 0:
+        return fbits_block
+
+    shopify_block = await _build_shopify_commerce_block(client_id, start, end)
+    if _safe_float(shopify_block.get("revenue")) > 0 or _safe_int(shopify_block.get("orders")) > 0:
+        return shopify_block
+
+    if fbits_block.get("source") == "fbits":
+        return fbits_block
+    return shopify_block
+
+
+async def _build_fbits_commerce_block(client_id: str, start: date, end: date) -> Dict[str, Any]:
+    period = resolve_fbits_period(start=start.isoformat(), end=end.isoformat())
+    try:
+        summary_payload = await build_fbits_summary(client_id=client_id, period=period)
+        orders_payload = await build_fbits_orders_report(client_id=client_id, period=period)
+    except Exception as exc:
+        print(f"[static_report][fbits_fallback] client_id={client_id} error={exc.__class__.__name__}")
+        return _blank_commerce()
+
+    connected = bool(summary_payload.get("connected") or orders_payload.get("connected"))
+    summary = summary_payload.get("summary") if isinstance(summary_payload.get("summary"), dict) else {}
+    top_products_raw = orders_payload.get("top_products") if isinstance(orders_payload.get("top_products"), list) else []
+    revenue = _round_money(summary.get("receita_oficial"))
+    orders = _safe_int(summary.get("pedidos"))
+    products_sold = _safe_int(summary.get("produtos_vendidos"))
+    top_products = []
+    for item in top_products_raw[:10]:
+        if not isinstance(item, dict):
+            continue
+        top_products.append(
+            {
+                "product_id": _safe_str(item.get("product_id")) or None,
+                "sku": _safe_str(item.get("sku")) or None,
+                "title": _safe_str(item.get("produto")) or "Produto FBits",
+                "quantity": _safe_int(item.get("quantidade")),
+                "revenue": _round_money(item.get("receita")),
+                "image_url": _safe_str(item.get("imagem")) or None,
+            }
+        )
+
+    return {
+        "source": "fbits" if connected else "none",
+        "source_label": "FBits",
+        "revenue": revenue,
+        "orders": orders,
+        "average_ticket": _round_money(summary.get("ticket_medio") or (revenue / orders if orders else 0.0)),
+        "discounts": 0.0,
+        "shipping": 0.0,
+        "refunds": 0.0,
+        "customers": _safe_int(summary.get("clientes")),
+        "products_sold": products_sold,
+        "top_products": top_products,
+        "message": summary_payload.get("message") or orders_payload.get("message"),
+    }
+
+
+async def _build_shopify_commerce_block(client_id: str, start: date, end: date) -> Dict[str, Any]:
     orders = await _safe_select(
         "shopify_orders",
         filters={
@@ -240,12 +312,16 @@ async def build_commerce_block(client_id: str, start: date, end: date) -> Dict[s
     ]
 
     return {
+        "source": "shopify",
+        "source_label": "Shopify",
         "revenue": _round_money(revenue),
         "orders": orders_count,
         "average_ticket": _round_money(revenue / orders_count) if orders_count else 0.0,
         "discounts": _round_money(discounts),
         "shipping": _round_money(shipping),
         "refunds": _round_money(refunds_total),
+        "customers": len({_safe_str(order.get("customer_id") or order.get("email")) for order in active_orders if _safe_str(order.get("customer_id") or order.get("email"))}),
+        "products_sold": sum(_safe_int(item.get("quantity")) for item in items),
         "top_products": top_products,
     }
 
@@ -483,20 +559,82 @@ def build_insights(
     traffic: Dict[str, Any],
     paid_media: Dict[str, Any],
     instagram: Dict[str, Any],
+    previous_commerce: Dict[str, Any] | None = None,
 ) -> List[str]:
     insights: List[str] = []
-    if _safe_int(commerce.get("orders")) > 0:
+    official_revenue = _safe_float(commerce.get("revenue"))
+    official_orders = _safe_int(commerce.get("orders"))
+    ga4_revenue = _safe_float(traffic.get("revenue"))
+    ga4_purchases = _safe_int(traffic.get("purchases"))
+    channels = [row for row in (traffic.get("channels") or []) if isinstance(row, dict)]
+    top_revenue_channel = channels[0] if channels else None
+    if channels:
+        top_revenue_channel = max(channels, key=lambda row: _safe_float(row.get("revenue")))
+    source_label = _safe_str(commerce.get("source_label")) or "fonte oficial"
+
+    if official_orders > 0:
         insights.append(
-            f"Commerce gerou {_safe_int(commerce.get('orders'))} pedidos com ticket medio de R$ {_format_brl(commerce.get('average_ticket'))}."
+            f"{source_label} registrou {official_orders} pedidos e R$ {_format_brl(official_revenue)} de receita oficial, com ticket medio de R$ {_format_brl(commerce.get('average_ticket'))}."
         )
+
+    prev_orders = _safe_int((previous_commerce or {}).get("orders"))
+    prev_revenue = _safe_float((previous_commerce or {}).get("revenue"))
+    if prev_orders > 0 and official_orders > 0:
+        order_delta = ((official_orders - prev_orders) / prev_orders) * 100
+        revenue_delta = ((official_revenue - prev_revenue) / prev_revenue) * 100 if prev_revenue else 0.0
+        direction = "cresceu" if order_delta >= 0 else "recuou"
+        insights.append(
+            f"Pedidos {direction} {abs(order_delta):.1f}% versus o periodo anterior; receita variou {revenue_delta:.1f}% na mesma base."
+        )
+
+    if top_revenue_channel and _safe_float(top_revenue_channel.get("revenue")) > 0:
+        channel_revenue = _safe_float(top_revenue_channel.get("revenue"))
+        share = (channel_revenue / ga4_revenue * 100) if ga4_revenue > 0 else 0.0
+        insights.append(
+            f"Maior canal de receita atribuida no GA4: {_safe_str(top_revenue_channel.get('source_medium'), 'canal nao identificado')}, com R$ {_format_brl(channel_revenue)} e {share:.1f}% da receita mensurada."
+        )
+        if share >= 65:
+            insights.append(
+                f"Ha dependencia relevante desse canal: {share:.1f}% da receita GA4 concentrada em uma unica origem."
+            )
+
+    if official_revenue > 0 and ga4_revenue > 0:
+        gap = ga4_revenue - official_revenue
+        gap_pct = (gap / official_revenue) * 100
+        insights.append(
+            f"Receita GA4 ficou {'acima' if gap >= 0 else 'abaixo'} da receita oficial em R$ {_format_brl(abs(gap))} ({abs(gap_pct):.1f}%). Use FBits como fonte oficial e GA4 como leitura de atribuicao."
+        )
+    elif ga4_purchases > 0 and official_orders == 0:
+        insights.append(
+            f"GA4 mostra {ga4_purchases} compras no periodo, mas a fonte oficial de vendas nao retornou pedidos. Prioridade: revisar sincronizacao FBits/commerce para este intervalo."
+        )
+
+    sessions = _safe_int(traffic.get("sessions"))
+    add_to_cart = _safe_int(traffic.get("add_to_cart"))
+    begin_checkout = _safe_int(traffic.get("begin_checkout"))
+    if sessions > 0:
+        conversion_rate = (ga4_purchases / sessions) * 100 if ga4_purchases else 0.0
+        insights.append(f"Taxa compra/sessao no GA4 ficou em {conversion_rate:.2f}%, a partir de {sessions} sessoes.")
+    if add_to_cart > 0 and begin_checkout > 0 and ga4_purchases >= 0:
+        checkout_drop = ((begin_checkout - ga4_purchases) / begin_checkout) * 100 if begin_checkout else 0.0
+        insights.append(
+            f"Funil GA4: {add_to_cart} add-to-cart, {begin_checkout} checkouts e {ga4_purchases} compras; queda checkout-compra de {max(0.0, checkout_drop):.1f}%."
+        )
+
     if _safe_float(paid_media.get("spend")) > 0:
+        paid_roas = _safe_float(paid_media.get("roas"))
         insights.append(
-            f"Midia paga investiu R$ {_format_brl(paid_media.get('spend'))} com ROAS de {round(_safe_float(paid_media.get('roas')), 2)}."
+            f"Midia paga investiu R$ {_format_brl(paid_media.get('spend'))} com ROAS de {round(paid_roas, 2)}."
         )
-    if _safe_int(traffic.get("sessions")) > 0:
+        if paid_roas <= 1 and _safe_float(paid_media.get("revenue")) <= 0:
+            insights.append("Meta Ads precisa de revisao de tracking ou campanha: ha investimento sem receita atribuida suficiente.")
+        elif paid_roas >= 3:
+            insights.append("Campanhas pagas com ROAS acima de 3 indicam oportunidade de escala controlada nos melhores conjuntos.")
+    elif sessions > 0:
         insights.append(
-            f"Trafego trouxe {_safe_int(traffic.get('sessions'))} sessoes e {_safe_int(traffic.get('purchases'))} compras registradas no GA4."
+            "Sem investimento de midia paga no periodo, o resultado dependeu principalmente de canais organicos, diretos ou CRM."
         )
+
     if _safe_int(instagram.get("followers_growth")) != 0:
         insights.append(
             f"Instagram variou {_safe_int(instagram.get('followers_growth'))} seguidores no periodo."
@@ -512,14 +650,24 @@ async def build_static_report(*, client_id: str, start: Optional[str], end: Opti
     traffic = await build_traffic_block(client_id, period_start, period_end)
     paid_media = await build_paid_media_block(client_id, period_start, period_end)
     instagram = await build_instagram_block(client_id, period_start, period_end)
+    previous_start, previous_end = _previous_period(period_start, period_end)
+    previous_commerce = await build_commerce_block(client_id, previous_start, previous_end)
     return {
         "period": {
             "start": period_start.isoformat(),
             "end": period_end.isoformat(),
+            "previous_start": previous_start.isoformat(),
+            "previous_end": previous_end.isoformat(),
         },
         "commerce": commerce,
+        "previous_commerce": {
+            "revenue": previous_commerce.get("revenue", 0),
+            "orders": previous_commerce.get("orders", 0),
+            "average_ticket": previous_commerce.get("average_ticket", 0),
+            "source": previous_commerce.get("source"),
+        },
         "traffic": traffic,
         "paid_media": paid_media,
         "instagram": instagram,
-        "insights": build_insights(commerce, traffic, paid_media, instagram),
+        "insights": build_insights(commerce, traffic, paid_media, instagram, previous_commerce),
     }
