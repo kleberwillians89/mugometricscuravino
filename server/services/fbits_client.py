@@ -106,9 +106,10 @@ async def _fetch_orders_for_status(
     start: str,
     end: str,
     page_limit: int,
-) -> List[Dict[str, Any]]:
+) -> Tuple[List[Dict[str, Any]], int]:
     rows: List[Dict[str, Any]] = []
     page = 1
+    pages_read = 0
     while page <= max(1, page_limit):
         response = await client.get(
             f"{base_url}/pedidos/situacaoPedido/{status_id}",
@@ -125,12 +126,13 @@ async def _fetch_orders_for_status(
             },
         )
         response.raise_for_status()
+        pages_read += 1
         page_rows = _status_rows(_orders_from_payload(response.json()), status_id)
         rows.extend(page_rows)
         if len(page_rows) < FBITS_ORDER_PAGE_SIZE:
             break
         page += 1
-    return rows
+    return rows, pages_read
 
 
 async def _fetch_detailed_orders(
@@ -141,9 +143,10 @@ async def _fetch_detailed_orders(
     start: str,
     end: str,
     page_limit: int,
-) -> List[Dict[str, Any]]:
+) -> Tuple[List[Dict[str, Any]], int]:
     rows: List[Dict[str, Any]] = []
     page = 1
+    pages_read = 0
     while page <= max(1, page_limit):
         response = await client.get(
             f"{base_url}/pedidos",
@@ -161,6 +164,7 @@ async def _fetch_detailed_orders(
             },
         )
         response.raise_for_status()
+        pages_read += 1
         page_rows = _orders_from_payload(response.json())
         rows.extend(page_rows)
         print(
@@ -170,7 +174,7 @@ async def _fetch_detailed_orders(
         if len(page_rows) < FBITS_ORDER_PAGE_SIZE:
             break
         page += 1
-    return rows
+    return rows, pages_read
 
 
 async def _get_json(
@@ -383,7 +387,7 @@ async def fetch_fbits_orders_with_diagnostics(
     status_counts: Dict[str, int] = {}
     async with httpx.AsyncClient(timeout=45) as client:
         try:
-            detailed_rows = await _fetch_detailed_orders(
+            detailed_rows, detailed_pages_read = await _fetch_detailed_orders(
                 client=client,
                 base_url=base_url,
                 token=config["token"],
@@ -401,9 +405,11 @@ async def fetch_fbits_orders_with_diagnostics(
             print(
                 "[fbits][orders] "
                 f"endpoint=/pedidos start={start} end={end} rows={len(rows)} "
-                f"deduped={deduped_count} unidentified={unidentified_count}"
+                f"deduped={deduped_count} unidentified={unidentified_count} pages_read={detailed_pages_read}"
             )
             if rows:
+                status_counts["_pages_read"] = detailed_pages_read
+                status_counts["_endpoint"] = 1
                 return rows, status_counts
         except httpx.HTTPStatusError as exc:
             print(
@@ -417,7 +423,7 @@ async def fetch_fbits_orders_with_diagnostics(
         for status_id in FBITS_APPROVED_ORDER_STATUS_IDS:
             status_counts[status_id] = 0
             try:
-                status_rows = await _fetch_orders_for_status(
+                status_rows, status_pages_read = await _fetch_orders_for_status(
                     client=client,
                     base_url=base_url,
                     token=config["token"],
@@ -441,6 +447,7 @@ async def fetch_fbits_orders_with_diagnostics(
                 continue
 
             status_counts[status_id] = len(status_rows)
+            status_counts["_pages_read"] = status_counts.get("_pages_read", 0) + status_pages_read
             print(f"[fbits][orders] endpoint=/pedidos/situacaoPedido/{status_id} status={status_id} count={len(status_rows)}")
             fallback_rows.extend(status_rows)
 

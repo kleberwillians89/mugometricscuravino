@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
-from .fbits_reporting import build_fbits_orders_report, build_fbits_summary, resolve_fbits_period
+from .fbits_reporting import get_official_commerce_summary
 from .ig_supabase import sb_select
 
 
@@ -191,17 +191,19 @@ async def build_commerce_block(client_id: str, start: date, end: date) -> Dict[s
 
 
 async def _build_fbits_commerce_block(client_id: str, start: date, end: date) -> Dict[str, Any]:
-    period = resolve_fbits_period(start=start.isoformat(), end=end.isoformat())
     try:
-        summary_payload = await build_fbits_summary(client_id=client_id, period=period)
-        orders_payload = await build_fbits_orders_report(client_id=client_id, period=period)
+        summary_payload = await get_official_commerce_summary(
+            client_id=client_id,
+            start=start.isoformat(),
+            end=end.isoformat(),
+        )
     except Exception as exc:
         print(f"[static_report][fbits_fallback] client_id={client_id} error={exc.__class__.__name__}")
         return _blank_commerce()
 
-    connected = bool(summary_payload.get("connected") or orders_payload.get("connected"))
+    connected = bool(summary_payload.get("connected"))
     summary = summary_payload.get("summary") if isinstance(summary_payload.get("summary"), dict) else {}
-    top_products_raw = orders_payload.get("top_products") if isinstance(orders_payload.get("top_products"), list) else []
+    top_products_raw = summary_payload.get("top_products") if isinstance(summary_payload.get("top_products"), list) else []
     revenue = _round_money(summary.get("receita_oficial"))
     orders = _safe_int(summary.get("pedidos"))
     products_sold = _safe_int(summary.get("produtos_vendidos"))
@@ -232,7 +234,8 @@ async def _build_fbits_commerce_block(client_id: str, start: date, end: date) ->
         "customers": _safe_int(summary.get("clientes")),
         "products_sold": products_sold,
         "top_products": top_products,
-        "message": summary_payload.get("message") or orders_payload.get("message"),
+        "message": summary_payload.get("message"),
+        "debug": summary_payload.get("debug"),
     }
 
 

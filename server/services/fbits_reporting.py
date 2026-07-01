@@ -453,6 +453,21 @@ def _period_filter(period: FbitsPeriod, column: str) -> str:
     return f"({column}.gte.{period.start},{column}.lte.{period.end})"
 
 
+def _period_filter_half_open(period: FbitsPeriod, column: str) -> str:
+    end_exclusive = date.fromisoformat(period.end) + timedelta(days=1)
+    return f"({column}.gte.{period.start}T00:00:00,{column}.lt.{end_exclusive.isoformat()}T00:00:00)"
+
+
+def _period_debug_dates(period: FbitsPeriod) -> Dict[str, str]:
+    end_exclusive = date.fromisoformat(period.end) + timedelta(days=1)
+    return {
+        "start": period.start,
+        "end": period.end,
+        "start_inclusive": f"{period.start}T00:00:00",
+        "end_exclusive": f"{end_exclusive.isoformat()}T00:00:00",
+    }
+
+
 def _is_schema_pending_error(exc: httpx.HTTPStatusError, *names: str) -> bool:
     if exc.response is None or exc.response.status_code not in {400, 404}:
         return False
@@ -472,7 +487,7 @@ async def _read_persisted_orders(*, client_id: str, period: FbitsPeriod) -> List
         select=select,
         filters={
             "client_id": f"eq.{client_id}",
-            "and": _period_filter(period, "order_date"),
+            "and": _period_filter_half_open(period, "order_date"),
         },
         order="order_date.desc",
         limit=10000,
@@ -484,7 +499,7 @@ async def _read_persisted_orders(*, client_id: str, period: FbitsPeriod) -> List
         select=select,
         filters={
             "client_id": f"eq.{client_id}",
-            "and": _period_filter(period, "approved_at"),
+            "and": _period_filter_half_open(period, "approved_at"),
         },
         order="approved_at.desc",
         limit=10000,
@@ -555,6 +570,82 @@ def _summary_from_daily(*, client_id: str, period: FbitsPeriod, rows: List[Dict[
         },
         "message": None,
         "source": "supabase",
+    }
+
+
+def _blank_summary_payload(*, client_id: str, period: FbitsPeriod, connected: bool, source: str) -> Dict[str, Any]:
+    return {
+        "ok": True,
+        "connected": connected,
+        "client_id": client_id,
+        "period": {"start": period.start, "end": period.end},
+        "summary": {
+            "receita_oficial": 0.0,
+            "pedidos": 0,
+            "ticket_medio": 0.0,
+            "clientes": 0,
+            "produtos_vendidos": 0,
+        },
+        "top_products": [],
+        "message": "FBits conectada, aguardando dados do período." if connected else "FBits ainda não conectada.",
+        "source": source,
+    }
+
+
+def _summary_from_dashboard_payload(
+    *,
+    client_id: str,
+    period: FbitsPeriod,
+    payload: Dict[str, Any],
+    details: Dict[str, int],
+) -> Dict[str, Any]:
+    revenue = round(_safe_float(payload.get("indicadorReceita")), 2)
+    orders = _safe_int(payload.get("indicadorPedido"))
+    ticket = round(_safe_float(payload.get("indicadorTicketMedio")) or (revenue / orders if orders else 0.0), 2)
+    return {
+        "ok": True,
+        "connected": True,
+        "client_id": client_id,
+        "period": {"start": period.start, "end": period.end},
+        "summary": {
+            "receita_oficial": revenue,
+            "pedidos": orders,
+            "ticket_medio": ticket,
+            "clientes": _safe_int(details.get("clientes")),
+            "produtos_vendidos": _safe_int(details.get("produtos_vendidos")),
+        },
+        "message": None if revenue or orders else "FBits conectada, aguardando dados do período.",
+        "source": "fbits_dashboard_api",
+    }
+
+
+def _status_counts_from_orders(orders: Iterable[Dict[str, Any]]) -> Dict[str, int]:
+    counts: Dict[str, int] = {}
+    for order in orders:
+        status = _status_id(order) or "-"
+        counts[status] = counts.get(status, 0) + 1
+    return dict(sorted(counts.items(), key=lambda item: item[0]))
+
+
+def _clean_status_counts(counts: Dict[str, int]) -> Dict[str, int]:
+    return {
+        key: value
+        for key, value in sorted(counts.items(), key=lambda item: item[0])
+        if not str(key).startswith("_")
+    }
+
+
+def _safe_order_debug(order: Dict[str, Any]) -> Dict[str, Any]:
+    normalized = normalize_fbits_order(order)
+    return {
+        "pedido_id": normalized.get("pedido_id"),
+        "pedido_codigo": normalized.get("pedido_codigo"),
+        "data": normalized.get("data"),
+        "data_pagamento": normalized.get("data_pagamento"),
+        "status_id": normalized.get("situacao_pedido_id"),
+        "status": normalized.get("situacao_pedido"),
+        "valor": round(_safe_float(normalized.get("receita_oficial")), 2),
+        "produtos_vendidos": _safe_int(normalized.get("produtos_vendidos")),
     }
 
 
@@ -1076,7 +1167,166 @@ async def build_fbits_orders_report(*, client_id: str, period: FbitsPeriod) -> D
     }
 
 
+async def get_official_commerce_summary(*, client_id: str, start: str, end: str) -> Dict[str, Any]:
+    period = resolve_fbits_period(start=start, end=end)
+    if not fbits_is_configured():
+        return _blank_summary_payload(client_id=client_id, period=period, connected=False, source="none")
+
+    dashboard_payload: Dict[str, Any] = {}
+    dashboard_error: str | None = None
+    api_orders: List[Dict[str, Any]] = []
+    status_counts: Dict[str, int] = {}
+    api_orders_error: str | None = None
+    local_daily_rows: List[Dict[str, Any]] = []
+    local_order_rows: List[Dict[str, Any]] = []
+    persisted_items: List[Dict[str, Any]] = []
+
+    try:
+        dashboard_payload = await fetch_fbits_revenue_dashboard(start=period.start, end=period.end)
+    except httpx.HTTPError as exc:
+        dashboard_error = exc.__class__.__name__
+        print(
+            "[fbits][official][dashboard_error] "
+            f"client_id={client_id} start={period.start} end={period.end} error={exc}"
+        )
+
+    try:
+        api_orders, status_counts = await fetch_fbits_orders_with_diagnostics(start=period.start, end=period.end)
+    except httpx.HTTPError as exc:
+        api_orders_error = exc.__class__.__name__
+        print(
+            "[fbits][official][orders_error] "
+            f"client_id={client_id} start={period.start} end={period.end} error={exc}"
+        )
+
+    try:
+        local_daily_rows = await _read_persisted_daily(client_id=client_id, period=period)
+    except httpx.HTTPStatusError as exc:
+        if _is_schema_pending_error(exc, "fbits_order_daily_stats"):
+            print(
+                "[fbits][official][schema_pending] "
+                f"client_id={client_id} missing=fbits_order_daily_stats"
+            )
+        else:
+            print(f"[fbits][official][daily_read_error] client_id={client_id} status={exc.response.status_code}")
+
+    try:
+        local_order_rows = await _read_persisted_orders(client_id=client_id, period=period)
+    except httpx.HTTPStatusError as exc:
+        if _is_schema_pending_error(exc, "payment_method", "payment_status", "fbits_orders"):
+            print(
+                "[fbits][official][schema_pending] "
+                f"client_id={client_id} missing=fbits_orders.payment_columns"
+            )
+        else:
+            print(f"[fbits][official][orders_read_error] client_id={client_id} status={exc.response.status_code}")
+
+    if local_order_rows:
+        try:
+            persisted_items = await _read_persisted_items(
+                client_id=client_id,
+                order_ids={_safe_str(row.get("order_id")) for row in local_order_rows if _safe_str(row.get("order_id"))},
+            )
+        except httpx.HTTPStatusError as exc:
+            if _is_schema_pending_error(exc, "fbits_order_items"):
+                print(
+                    "[fbits][official][schema_pending] "
+                    f"client_id={client_id} missing=fbits_order_items"
+                )
+            else:
+                print(f"[fbits][official][items_read_error] client_id={client_id} status={exc.response.status_code}")
+
+    detail_items = [_persisted_order_item(row) for row in local_order_rows]
+    api_top_products = _products_ranking(api_orders)[:20] if api_orders else []
+    persisted_top_products = (
+        _products_ranking_from_items(persisted_items)
+        or _products_ranking([row.get("raw") for row in local_order_rows if isinstance(row.get("raw"), dict)])
+    )[:20]
+    top_products = api_top_products or persisted_top_products
+    detail_metrics = _detail_metrics_from_items(detail_items)
+    if not detail_metrics["produtos_vendidos"] and api_orders:
+        detail_metrics["produtos_vendidos"] = sum(_products_sold(order) for order in api_orders)
+    if not detail_metrics["clientes"] and api_orders:
+        detail_metrics["clientes"] = len(
+            {
+                _customer_key(order)
+                for order in api_orders
+                if _customer_key(order)
+            }
+        )
+
+    local_daily_summary = _summary_from_daily(client_id=client_id, period=period, rows=local_daily_rows) if local_daily_rows else None
+    local_orders_summary = (
+        _summary_from_orders(client_id=client_id, period=period, orders=detail_items) if detail_items else None
+    )
+
+    dashboard_revenue = _safe_float(dashboard_payload.get("indicadorReceita"))
+    dashboard_orders = _safe_int(dashboard_payload.get("indicadorPedido"))
+    if dashboard_payload and (dashboard_revenue > 0 or dashboard_orders > 0):
+        payload = _summary_from_dashboard_payload(
+            client_id=client_id,
+            period=period,
+            payload=dashboard_payload,
+            details=detail_metrics,
+        )
+    elif local_daily_summary and (
+        _safe_float(local_daily_summary["summary"].get("receita_oficial"))
+        or _safe_int(local_daily_summary["summary"].get("pedidos"))
+    ):
+        payload = {**local_daily_summary, "source": "supabase_daily"}
+    elif local_orders_summary:
+        payload = {**local_orders_summary, "connected": True, "source": "supabase_orders"}
+    else:
+        payload = _blank_summary_payload(client_id=client_id, period=period, connected=True, source="fbits_empty")
+
+    clean_status_counts = _clean_status_counts(status_counts) or _status_counts_from_orders(api_orders)
+    pages_read = _safe_int(status_counts.get("_pages_read"))
+    payload["top_products"] = top_products
+    payload["debug"] = {
+        "source": payload.get("source"),
+        "dates": _period_debug_dates(period),
+        "fbits_api": {
+            "dashboard_revenue": round(dashboard_revenue, 2),
+            "dashboard_orders": dashboard_orders,
+            "dashboard_ticket": round(_safe_float(dashboard_payload.get("indicadorTicketMedio")), 2),
+            "dashboard_error": dashboard_error,
+            "orders_returned": len(api_orders),
+            "pages_read": pages_read,
+            "pages_read_estimate": ((len(api_orders) + 49) // 50) if api_orders else 0,
+            "orders_error": api_orders_error,
+            "status_counts": clean_status_counts,
+            "revenue_sum_from_orders_endpoint": round(sum(_order_total(order) for order in api_orders), 2),
+        },
+        "local": {
+            "daily_rows": len(local_daily_rows),
+            "daily_revenue": round(
+                sum(_safe_float(row.get("receita_oficial")) for row in local_daily_rows),
+                2,
+            ),
+            "daily_orders": sum(_safe_int(row.get("pedidos")) for row in local_daily_rows),
+            "orders_rows": len(local_order_rows),
+            "orders_revenue": round(sum(_safe_float(row.get("total_value")) for row in local_order_rows), 2),
+            "orders_count": len(local_order_rows),
+            "items_rows": len(persisted_items),
+        },
+        "status_found": clean_status_counts,
+        "top_20_orders": [_safe_order_debug(order) for order in api_orders[:20]],
+    }
+    summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
+    print(
+        "[fbits][official] "
+        f"client_id={client_id} start={period.start} end={period.end} source={payload.get('source')} "
+        f"receita={_safe_float(summary.get('receita_oficial')):.2f} pedidos={_safe_int(summary.get('pedidos'))} "
+        f"api_orders={len(api_orders)} local_orders={len(local_order_rows)}"
+    )
+    return payload
+
+
 async def build_fbits_summary(*, client_id: str, period: FbitsPeriod) -> Dict[str, Any]:
+    return await get_official_commerce_summary(client_id=client_id, start=period.start, end=period.end)
+
+
+async def _legacy_build_fbits_summary_from_supabase(*, client_id: str, period: FbitsPeriod) -> Dict[str, Any]:
     if not fbits_is_configured():
         return _summary_from_orders(client_id=client_id, period=period, orders=[])
     try:
