@@ -18,7 +18,27 @@ def _safe_float(value: Any) -> float:
     try:
         if value is None or value == "":
             return 0.0
-        return float(value)
+        if isinstance(value, (int, float)):
+            return float(value)
+        text = str(value).strip()
+        if not text:
+            return 0.0
+        text = (
+            text.replace("R$", "")
+            .replace("\xa0", "")
+            .replace(" ", "")
+            .replace("%", "")
+            .strip()
+        )
+        if "," in text and "." in text:
+            if text.rfind(",") > text.rfind("."):
+                text = text.replace(".", "").replace(",", ".")
+            else:
+                text = text.replace(",", "")
+        elif "," in text:
+            text = text.replace(",", ".")
+        cleaned = "".join(char for char in text if char.isdigit() or char in {".", "-"})
+        return float(cleaned or 0)
     except Exception:
         return 0.0
 
@@ -179,15 +199,38 @@ def _previous_period(start: date, end: date) -> tuple[date, date]:
 async def build_commerce_block(client_id: str, start: date, end: date) -> Dict[str, Any]:
     fbits_block = await _build_fbits_commerce_block(client_id, start, end)
     if _safe_float(fbits_block.get("revenue")) > 0 or _safe_int(fbits_block.get("orders")) > 0:
+        _log_commerce_decision(client_id=client_id, start=start, end=end, block=fbits_block, fallback_used=False)
         return fbits_block
 
     shopify_block = await _build_shopify_commerce_block(client_id, start, end)
     if _safe_float(shopify_block.get("revenue")) > 0 or _safe_int(shopify_block.get("orders")) > 0:
+        _log_commerce_decision(client_id=client_id, start=start, end=end, block=shopify_block, fallback_used=True)
         return shopify_block
 
     if fbits_block.get("source") == "fbits":
+        _log_commerce_decision(client_id=client_id, start=start, end=end, block=fbits_block, fallback_used=False)
         return fbits_block
+    _log_commerce_decision(client_id=client_id, start=start, end=end, block=shopify_block, fallback_used=True)
     return shopify_block
+
+
+def _log_commerce_decision(
+    *,
+    client_id: str,
+    start: date,
+    end: date,
+    block: Dict[str, Any],
+    fallback_used: bool,
+) -> None:
+    debug = block.get("debug") if isinstance(block.get("debug"), dict) else {}
+    print(
+        "[static_report][commerce_decision] "
+        f"client_id={client_id} start={start.isoformat()} end={end.isoformat()} "
+        f"official_revenue_from_fbits_api={_safe_float(debug.get('official_api_revenue')):.2f} "
+        f"final_commerce_revenue_returned={_safe_float(block.get('revenue')):.2f} "
+        f"local_revenue={_safe_float(debug.get('local_revenue')):.2f} "
+        f"source={block.get('source')} fallback_used={str(fallback_used).lower()}"
+    )
 
 
 async def _build_fbits_commerce_block(client_id: str, start: date, end: date) -> Dict[str, Any]:
@@ -207,6 +250,17 @@ async def _build_fbits_commerce_block(client_id: str, start: date, end: date) ->
     revenue = _round_money(summary.get("receita_oficial"))
     orders = _safe_int(summary.get("pedidos"))
     products_sold = _safe_int(summary.get("produtos_vendidos"))
+    raw_debug = summary_payload.get("debug") if isinstance(summary_payload.get("debug"), dict) else {}
+    fbits_api_debug = raw_debug.get("fbits_api") if isinstance(raw_debug.get("fbits_api"), dict) else {}
+    local_debug = raw_debug.get("local") if isinstance(raw_debug.get("local"), dict) else {}
+    official_api_revenue = _round_money(fbits_api_debug.get("dashboard_revenue"))
+    official_api_orders = _safe_int(fbits_api_debug.get("dashboard_orders"))
+    official_api_ticket = _round_money(fbits_api_debug.get("dashboard_ticket"))
+    source_used = _safe_str(summary_payload.get("source")) or _safe_str(raw_debug.get("source"))
+    api_has_official_values = official_api_revenue > 0 and official_api_orders > 0
+    if api_has_official_values:
+        revenue = official_api_revenue
+        orders = official_api_orders
     top_products = []
     for item in top_products_raw[:10]:
         if not isinstance(item, dict):
@@ -227,7 +281,9 @@ async def _build_fbits_commerce_block(client_id: str, start: date, end: date) ->
         "source_label": "FBits",
         "revenue": revenue,
         "orders": orders,
-        "average_ticket": _round_money(summary.get("ticket_medio") or (revenue / orders if orders else 0.0)),
+        "average_ticket": _round_money(
+            official_api_ticket if api_has_official_values else (summary.get("ticket_medio") or (revenue / orders if orders else 0.0))
+        ),
         "discounts": 0.0,
         "shipping": 0.0,
         "refunds": 0.0,
@@ -235,7 +291,22 @@ async def _build_fbits_commerce_block(client_id: str, start: date, end: date) ->
         "products_sold": products_sold,
         "top_products": top_products,
         "message": summary_payload.get("message"),
-        "debug": summary_payload.get("debug"),
+        "debug": {
+            **raw_debug,
+            "official_api_revenue": official_api_revenue,
+            "official_api_orders": official_api_orders,
+            "official_api_average_ticket": official_api_ticket,
+            "final_revenue": revenue,
+            "final_orders": orders,
+            "final_average_ticket": _round_money(
+                official_api_ticket if api_has_official_values else (summary.get("ticket_medio") or (revenue / orders if orders else 0.0))
+            ),
+            "local_revenue": _round_money(
+                local_debug.get("daily_revenue") or local_debug.get("orders_revenue")
+            ),
+            "source_used": source_used,
+            "fallback_used": source_used != "fbits_dashboard_api",
+        },
     }
 
 
@@ -655,6 +726,15 @@ async def build_static_report(*, client_id: str, start: Optional[str], end: Opti
     instagram = await build_instagram_block(client_id, period_start, period_end)
     previous_start, previous_end = _previous_period(period_start, period_end)
     previous_commerce = await build_commerce_block(client_id, previous_start, previous_end)
+    commerce_debug = commerce.get("debug") if isinstance(commerce.get("debug"), dict) else {}
+    print(
+        "[static_report][response_debug] "
+        f"client_id={client_id} start={period_start.isoformat()} end={period_end.isoformat()} "
+        f"official_revenue_from_fbits_api={_safe_float(commerce_debug.get('official_api_revenue')):.2f} "
+        f"final_commerce_revenue_returned={_safe_float(commerce.get('revenue')):.2f} "
+        f"local_revenue={_safe_float(commerce_debug.get('local_revenue')):.2f} "
+        f"source={commerce.get('source')} fallback_used={str(bool(commerce_debug.get('fallback_used'))).lower()}"
+    )
     return {
         "period": {
             "start": period_start.isoformat(),

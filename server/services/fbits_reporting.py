@@ -30,7 +30,29 @@ def _safe_str(value: Any) -> str:
 
 def _safe_float(value: Any) -> float:
     try:
-        return float(str(value or "0").replace(",", "."))
+        if value is None or value == "":
+            return 0.0
+        if isinstance(value, (int, float)):
+            return float(value)
+        text = str(value).strip()
+        if not text:
+            return 0.0
+        text = (
+            text.replace("R$", "")
+            .replace("\xa0", "")
+            .replace(" ", "")
+            .replace("%", "")
+            .strip()
+        )
+        if "," in text and "." in text:
+            if text.rfind(",") > text.rfind("."):
+                text = text.replace(".", "").replace(",", ".")
+            else:
+                text = text.replace(",", "")
+        elif "," in text:
+            text = text.replace(",", ".")
+        cleaned = "".join(char for char in text if char.isdigit() or char in {".", "-"})
+        return float(cleaned or 0)
     except Exception:
         return 0.0
 
