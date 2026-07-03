@@ -67,10 +67,53 @@
   padding: 0 10px;
 }
 
+.staticReportNarrative,
+.staticReportExplainer{
+  border: 1px solid rgba(91,31,42,.12);
+  border-radius: 8px;
+  background: rgba(255,255,255,.86);
+  box-shadow: 0 12px 30px rgba(48,31,33,.07);
+}
+
+.staticReportNarrative{
+  display: grid;
+  grid-template-columns: minmax(220px, .8fr) minmax(0, 1.2fr);
+  gap: 18px;
+  align-items: center;
+  padding: 18px;
+}
+
+.staticReportNarrative h2{
+  margin: 4px 0 0;
+  color: #1d1b1a;
+  font-size: clamp(1.25rem, 2vw, 1.75rem);
+}
+
+.staticReportNarrative p,
+.staticReportPanelDescription,
+.staticReportExplainer{
+  color: rgba(29,27,26,.66);
+  line-height: 1.6;
+}
+
+.staticReportNarrative p,
+.staticReportPanelDescription{
+  margin: 0;
+}
+
+.staticReportExplainer{
+  padding: 14px 16px;
+  background: rgba(123,45,59,.05);
+}
+
 .staticReportMetrics{
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 10px;
+}
+
+.staticReportMetricsFeatured{
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .staticReportMetric,
@@ -108,6 +151,10 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
+}
+
+.staticReportPanelWide{
+  grid-column: 1 / -1;
 }
 
 .staticReportPanel,
@@ -183,6 +230,140 @@
   text-align: center !important;
 }
 
+.staticReportRoasList,
+.staticReportComparisonGrid,
+.staticReportStatusGrid,
+.staticReportProjectGrid{
+  display: grid;
+  gap: 10px;
+}
+
+.staticReportComparisonGrid{
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 12px;
+}
+
+.staticReportComparisonCard{
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid rgba(91,31,42,.1);
+  border-radius: 8px;
+  background: rgba(251,248,244,.72);
+}
+
+.staticReportComparisonTop,
+.staticReportComparisonValues{
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.staticReportComparisonTop strong{
+  color: #1d1b1a;
+}
+
+.staticReportComparisonTop span{
+  flex: 0 0 auto;
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(29,27,26,.07);
+  color: rgba(29,27,26,.62);
+  font-size: .78rem;
+  font-weight: 900;
+}
+
+.staticReportComparisonTop span.isPositive{
+  background: rgba(34,112,78,.09);
+  color: #276a4d;
+}
+
+.staticReportComparisonTop span.isNegative{
+  background: rgba(123,45,59,.08);
+  color: #7b2d3b;
+}
+
+.staticReportComparisonValues div{
+  display: grid;
+  gap: 4px;
+}
+
+.staticReportComparisonValues span{
+  color: rgba(29,27,26,.54);
+  font-size: .74rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.staticReportComparisonValues strong{
+  color: #1d1b1a;
+  font-size: 1rem;
+}
+
+.staticReportComparisonCard p{
+  margin: 0;
+  color: rgba(29,27,26,.66);
+  line-height: 1.5;
+}
+
+.staticReportRoasList div,
+.staticReportStatusItem{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px;
+  border: 1px solid rgba(91,31,42,.1);
+  border-radius: 8px;
+  background: rgba(251,248,244,.72);
+}
+
+.staticReportRoasList strong,
+.staticReportStatusItem strong{
+  color: #1d1b1a;
+}
+
+.staticReportRoasList span,
+.staticReportStatusItem span{
+  color: rgba(29,27,26,.64);
+  font-weight: 800;
+  text-align: right;
+}
+
+.staticReportStatusGrid{
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.staticReportProjectGrid{
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.staticReportProjectGrid h3{
+  margin: 0 0 10px;
+  color: #1d1b1a;
+  font-size: .95rem;
+}
+
+.staticReportProjectGrid ul{
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.staticReportProjectGrid li{
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(123,45,59,.05);
+  color: rgba(29,27,26,.76);
+  font-weight: 700;
+}
+
 .staticReportInsights ul{
   display: grid;
   gap: 8px;
@@ -215,6 +396,10 @@
   .staticReportMetrics{
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
+
+  .staticReportStatusGrid{
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 860px){
@@ -235,10 +420,31 @@
   .staticReportGrid{
     grid-template-columns: 1fr;
   }
+
+  .staticReportComparisonGrid,
+  .staticReportNarrative,
+  .staticReportProjectGrid{
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 620px){
-  .staticReportMetrics{
+  .staticReportMetrics,
+  .staticReportMetricsFeatured,
+  .staticReportStatusGrid{
     grid-template-columns: 1fr;
+  }
+
+  .staticReportRoasList div,
+  .staticReportComparisonTop,
+  .staticReportComparisonValues,
+  .staticReportStatusItem{
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .staticReportRoasList span,
+  .staticReportStatusItem span{
+    text-align: left;
   }
 }

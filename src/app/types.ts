@@ -901,6 +901,12 @@ export type StaticReportResponse = {
       [key: string]: unknown;
     };
   };
+  previous_commerce?: {
+    revenue: number;
+    orders: number;
+    average_ticket: number;
+    source?: string | null;
+  };
   traffic: {
     sessions: number;
     active_users: number;

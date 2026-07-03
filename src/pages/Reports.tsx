@@ -32,6 +32,38 @@ function decimal(value: number, digits = 2) {
   }).format(Number.isFinite(value) ? value : 0);
 }
 
+function pct(value: number) {
+  return `${decimal(value, 1)}%`;
+}
+
+function safeNumber(value: unknown, fallback = 0) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function positiveOrNull(value: unknown) {
+  const parsed = safeNumber(value, 0);
+  return parsed > 0 ? parsed : null;
+}
+
+function variationPercent(current: number, previous: number): number | null {
+  if (!Number.isFinite(current) || !Number.isFinite(previous) || previous <= 0) return null;
+  return ((current - previous) / previous) * 100;
+}
+
+function variationLabel(value: number | null) {
+  if (value == null) return "Sem base comparativa suficiente";
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${decimal(value, 1)}%`;
+}
+
+function variationReading(label: string, value: number | null) {
+  if (value == null) return "Sem base comparativa suficiente.";
+  if (Math.abs(value) < 0.1) return `${label} ficou estavel em relacao ao mes anterior.`;
+  if (value > 0) return `${label} cresceu em relacao ao mes anterior.`;
+  return `${label} reduziu em relacao ao mes anterior, dentro da leitura do periodo.`;
+}
+
 function dateLabel(value: string) {
   const parsed = new Date(`${value}T00:00:00`);
   if (Number.isNaN(parsed.getTime())) return value;
@@ -58,6 +90,131 @@ function MetricCard({ label, value, hint }: { label: string; value: string; hint
   );
 }
 
+const COMMERCIAL_OPPORTUNITIES = [
+  { name: "PIX com desconto", status: "Pendente" },
+  { name: "Parcelamento em ate 10x", status: "Pendente" },
+  { name: "Recuperacao de Carrinho", status: "Em desenvolvimento" },
+  { name: "Remarketing", status: "Ativo" },
+  { name: "Google Merchant", status: "Ativo" },
+  { name: "Meta Catalogo", status: "Ativo" },
+];
+
+const PROJECT_IMPLEMENTED = [
+  "Dashboard",
+  "Merchant Center",
+  "Meta Catalogo",
+  "Relatorio Executivo",
+  "Conversoes",
+];
+
+const PROJECT_NEXT_STEPS = [
+  "PIX com desconto",
+  "Parcelamento em 10x",
+  "Automacoes",
+  "Remarketing",
+  "Novas campanhas",
+];
+
+function channelGroup(label: string) {
+  const text = label.toLowerCase();
+  if (text.includes("google") || text.includes("cpc") || text.includes("paid search")) return "Google";
+  if (text.includes("facebook") || text.includes("instagram") || text.includes("meta")) {
+    return text.includes("instagram") ? "Instagram" : "Meta";
+  }
+  if (text.includes("organic") || text.includes("organico") || text.includes("search")) return "Organico";
+  if (text.includes("direct") || text.includes("direto") || text.includes("(none)")) return "Direto";
+  return "Outros";
+}
+
+function buildChannelRows(report: StaticReportResponse) {
+  const totalAttributed = safeNumber(report.traffic.revenue);
+  const rows = new Map<string, { channel: string; revenue: number; orders: number }>();
+  for (const item of report.traffic.channels || []) {
+    const channel = channelGroup(`${item.source_medium || ""} ${item.source || ""} ${item.medium || ""}`);
+    const current = rows.get(channel) || { channel, revenue: 0, orders: 0 };
+    current.revenue += safeNumber(item.revenue);
+    current.orders += safeNumber(item.purchases);
+    rows.set(channel, current);
+  }
+
+  return ["Google", "Meta", "Organico", "Direto", "Instagram", "Outros"].map((channel) => {
+    const row = rows.get(channel) || { channel, revenue: 0, orders: 0 };
+    return {
+      ...row,
+      share: totalAttributed > 0 ? (row.revenue / totalAttributed) * 100 : 0,
+    };
+  });
+}
+
+function plannedInvestment(report: StaticReportResponse) {
+  const paid = report.paid_media as typeof report.paid_media & Record<string, unknown>;
+  return positiveOrNull(paid.planned_spend ?? paid.planned_investment ?? paid.budget ?? paid.budget_total);
+}
+
+function buildMonthlyComparisons(report: StaticReportResponse) {
+  const previous = report.previous_commerce;
+  const currentOrdersOrLeads = safeNumber(report.commerce.orders) || safeNumber(report.paid_media.conversions);
+  const previousOrdersOrLeads = previous ? safeNumber(previous.orders) : 0;
+  const currentTicket = safeNumber(report.commerce.average_ticket);
+  const previousTicket = previous ? safeNumber(previous.average_ticket) : 0;
+  const currentAttributedRevenue = safeNumber(report.traffic.revenue);
+  const currentInvestment = safeNumber(report.paid_media.spend);
+  const currentRoas = currentInvestment > 0 && currentAttributedRevenue > 0 ? currentAttributedRevenue / currentInvestment : null;
+  const currentCost = currentInvestment > 0 && currentOrdersOrLeads > 0 ? currentInvestment / currentOrdersOrLeads : null;
+
+  return [
+    {
+      label: "Receita Total",
+      current: brl(report.commerce.revenue),
+      previous: previous ? brl(previous.revenue) : null,
+      variation: variationPercent(safeNumber(report.commerce.revenue), previous ? safeNumber(previous.revenue) : 0),
+      readingLabel: "A receita",
+    },
+    {
+      label: "Pedidos/leads",
+      current: number(currentOrdersOrLeads),
+      previous: previous ? number(previousOrdersOrLeads) : null,
+      variation: variationPercent(currentOrdersOrLeads, previousOrdersOrLeads),
+      readingLabel: "O volume de pedidos/leads",
+    },
+    {
+      label: "Ticket medio",
+      current: brl(currentTicket),
+      previous: previous ? brl(previousTicket) : null,
+      variation: variationPercent(currentTicket, previousTicket),
+      readingLabel: "O ticket medio",
+    },
+    {
+      label: "Investimento em midia",
+      current: brl(currentInvestment),
+      previous: null,
+      variation: null,
+      readingLabel: "O investimento em midia",
+    },
+    {
+      label: "Receita atribuida ao marketing",
+      current: brl(currentAttributedRevenue),
+      previous: null,
+      variation: null,
+      readingLabel: "A receita atribuida ao marketing",
+    },
+    {
+      label: "ROAS",
+      current: currentRoas == null ? "Nao calculado" : decimal(currentRoas),
+      previous: null,
+      variation: null,
+      readingLabel: "O ROAS",
+    },
+    {
+      label: "Custo por lead/aquisicao",
+      current: currentCost == null ? "Nao calculado" : brl(currentCost),
+      previous: null,
+      variation: null,
+      readingLabel: "O custo por lead/aquisicao",
+    },
+  ];
+}
+
 export default function Reports({
   onLogout,
   onOpenDashboard,
@@ -76,6 +233,15 @@ export default function Reports({
     if (!report) return "Nenhum relatorio gerado nesta sessao.";
     return `${dateLabel(report.period.start)} a ${dateLabel(report.period.end)}`;
   }, [report]);
+  const channelRows = useMemo(() => (report ? buildChannelRows(report) : []), [report]);
+  const plannedMedia = report ? plannedInvestment(report) : null;
+  const consumedMedia = report ? safeNumber(report.paid_media.spend) : 0;
+  const mediaBalance = plannedMedia == null ? null : Math.max(0, plannedMedia - consumedMedia);
+  const attributedRevenue = report ? safeNumber(report.traffic.revenue) : 0;
+  const paidAttributedRevenue = report ? safeNumber(report.paid_media.revenue) : 0;
+  const marketingRoas = consumedMedia > 0 && attributedRevenue > 0 ? attributedRevenue / consumedMedia : null;
+  const paidRoas = consumedMedia > 0 && paidAttributedRevenue > 0 ? paidAttributedRevenue / consumedMedia : null;
+  const monthlyComparisons = useMemo(() => (report ? buildMonthlyComparisons(report) : []), [report]);
 
   async function handleGenerate() {
     setLoading(true);
@@ -183,71 +349,165 @@ export default function Reports({
 
         {!report ? (
           <div className="staticReportInitial">
-            Selecione o periodo e gere o resumo executivo com commerce, trafego, midia paga e Instagram.
+            Selecione o periodo e gere uma leitura executiva com vendas, investimento, receita atribuida e proximas acoes.
           </div>
         ) : (
           <>
-            <div className="staticReportMetrics">
+            <div className="staticReportNarrative">
+              <div>
+                <div className="staticReportEyebrow">Resumo para decisao</div>
+                <h2>O que aconteceu no periodo</h2>
+              </div>
+              <p>
+                A leitura separa o faturamento total da loja da receita atribuida aos canais de marketing.
+                Assim fica claro o que a empresa vendeu, quanto foi investido e qual parte do resultado pode
+                ser relacionada as iniciativas digitais.
+              </p>
+            </div>
+
+            <div className="staticReportMetrics staticReportMetricsFeatured">
               <MetricCard
-                label="Receita commerce"
+                label="Receita Total do E-commerce"
                 value={brl(report.commerce.revenue)}
-                hint={`${number(report.commerce.orders)} pedidos`}
+                hint="Valor total faturado pela loja durante o periodo, considerando todos os canais."
               />
               <MetricCard
-                label="Ticket medio"
-                value={brl(report.commerce.average_ticket)}
-                hint={`${brl(report.commerce.refunds)} em reembolsos`}
+                label="Receita Atribuida ao Marketing"
+                value={brl(attributedRevenue)}
+                hint="Estimativa da receita relacionada aos canais de marketing digital."
               />
               <MetricCard
-                label="Sessoes"
-                value={number(report.traffic.sessions)}
-                hint={`${number(report.traffic.purchases)} compras GA4`}
-              />
-              <MetricCard
-                label="Investimento"
-                value={brl(report.paid_media.spend)}
-                hint={`ROAS ${decimal(report.paid_media.roas)}`}
-              />
-              <MetricCard
-                label="Alcance pago"
-                value={number(report.paid_media.reach)}
-                hint={`CTR ${decimal(report.paid_media.ctr)}%`}
-              />
-              <MetricCard
-                label="Instagram"
-                value={number(report.instagram.followers_growth)}
-                hint={`${number(report.instagram.engagements)} engajamentos`}
+                label="Pedidos"
+                value={number(report.commerce.orders)}
+                hint="Quantidade de pedidos registrados pela fonte comercial do periodo."
               />
             </div>
 
+            <div className="staticReportExplainer">
+              Caso algum canal nao tenha atribuicao confiavel, ele aparece sem valor estimado. Receita total e receita atribuida nao sao somadas nem misturadas.
+            </div>
+
+            <div className="staticReportMetrics">
+              <MetricCard
+                label="Investimento Planejado"
+                value={plannedMedia == null ? "Nao informado" : brl(plannedMedia)}
+                hint="Valor previsto para campanhas no periodo, quando informado."
+              />
+              <MetricCard label="Investimento Consumido" value={brl(consumedMedia)} hint="Valor efetivamente consumido pelas campanhas." />
+              <MetricCard label="Saldo nao utilizado" value={mediaBalance == null ? "Nao informado" : brl(mediaBalance)} hint="Diferenca entre o planejado e o valor consumido." />
+              <MetricCard label="ROAS Marketing Total" value={marketingRoas == null ? "Nao calculado" : decimal(marketingRoas)} hint="Receita atribuida dividida pelo investimento realizado." />
+              <MetricCard label="Sessoes" value={number(report.traffic.sessions)} hint="Volume de visitas registrado no periodo." />
+              <MetricCard label="Instagram" value={number(report.instagram.followers_growth)} hint={`${number(report.instagram.engagements)} engajamentos organicos.`} />
+            </div>
+
+            <article className="staticReportPanel staticReportPanelWide">
+              <header>
+                <h2>Comparativo Mensal</h2>
+                <span>Mes atual x mes anterior</span>
+              </header>
+              <p className="staticReportPanelDescription">
+                Evolucao simples dos principais indicadores. Quando o mes anterior nao esta disponivel no relatorio, a comparacao fica sinalizada sem estimativa.
+              </p>
+              <div className="staticReportComparisonGrid">
+                {monthlyComparisons.map((item) => (
+                  <div className="staticReportComparisonCard" key={item.label}>
+                    <div className="staticReportComparisonTop">
+                      <strong>{item.label}</strong>
+                      <span className={item.variation == null ? "" : item.variation >= 0 ? "isPositive" : "isNegative"}>
+                        {variationLabel(item.variation)}
+                      </span>
+                    </div>
+                    <div className="staticReportComparisonValues">
+                      <div>
+                        <span>Mes atual</span>
+                        <strong>{item.current}</strong>
+                      </div>
+                      <div>
+                        <span>Mes anterior</span>
+                        <strong>{item.previous || "Sem base comparativa suficiente"}</strong>
+                      </div>
+                    </div>
+                    <p>{variationReading(item.readingLabel, item.variation)}</p>
+                  </div>
+                ))}
+              </div>
+            </article>
+
             <div className="staticReportGrid">
-              <article className="staticReportPanel">
+              <article className="staticReportPanel staticReportPanelWide">
                 <header>
-                  <h2>Top canais</h2>
-                  <span>{number(report.traffic.sessions)} sessoes</span>
+                  <h2>Receita por Canal</h2>
+                  <span>Receita atribuida: {brl(attributedRevenue)}</span>
                 </header>
+                <p className="staticReportPanelDescription">
+                  Esta tabela mostra apenas a receita atribuida aos canais de marketing e navegacao digital. Quando nao houver dados confiaveis, o canal fica zerado.
+                </p>
                 <div className="staticReportTableWrap">
                   <table>
                     <thead>
                       <tr>
                         <th>Canal</th>
-                        <th>Sessoes</th>
-                        <th>Compras</th>
+                        <th>Receita</th>
+                        <th>Participacao</th>
+                        <th>Pedidos</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {channelRows.map((row) => (
+                        <tr key={row.channel}>
+                          <td>{row.channel}</td>
+                          <td>{brl(row.revenue)}</td>
+                          <td>{pct(row.share)}</td>
+                          <td>{row.orders ? number(row.orders) : "Nao disponivel"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </article>
+
+              <article className="staticReportPanel">
+                <header>
+                  <h2>ROAS</h2>
+                  <span>Com receita atribuida</span>
+                </header>
+                <div className="staticReportRoasList">
+                  <div>
+                    <strong>Meta</strong>
+                    <span>{paidRoas == null ? "Nao foi possivel calcular este indicador com seguranca utilizando os dados disponiveis." : decimal(paidRoas)}</span>
+                  </div>
+                  <div>
+                    <strong>Marketing Total</strong>
+                    <span>{marketingRoas == null ? "Nao foi possivel calcular este indicador com seguranca utilizando os dados disponiveis." : decimal(marketingRoas)}</span>
+                  </div>
+                </div>
+              </article>
+
+              <article className="staticReportPanel">
+                <header>
+                  <h2>Produtos vendidos</h2>
+                  <span>{brl(report.commerce.revenue)} em vendas totais</span>
+                </header>
+                <div className="staticReportTableWrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Produto</th>
+                        <th>Qtd.</th>
                         <th>Receita</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {report.traffic.channels.length ? (
-                        report.traffic.channels.map((channel) => (
-                          <tr key={channel.source_medium}>
-                            <td>{channel.source_medium}</td>
-                            <td>{number(channel.sessions)}</td>
-                            <td>{number(channel.purchases)}</td>
-                            <td>{brl(channel.revenue)}</td>
+                      {report.commerce.top_products.length ? (
+                        report.commerce.top_products.map((product) => (
+                          <tr key={product.product_id || product.variant_id || product.title}>
+                            <td>{product.title}</td>
+                            <td>{number(product.quantity)}</td>
+                            <td>{brl(product.revenue)}</td>
                           </tr>
                         ))
                       ) : (
-                        <EmptyRow colSpan={4} label="Sem dados de canais no periodo." />
+                        <EmptyRow colSpan={3} label="Sem produtos vendidos no periodo." />
                       )}
                     </tbody>
                   </table>
@@ -257,8 +517,11 @@ export default function Reports({
               <article className="staticReportPanel">
                 <header>
                   <h2>Top campanhas</h2>
-                  <span>{brl(report.paid_media.spend)} investidos</span>
+                  <span>{brl(consumedMedia)} consumidos</span>
                 </header>
+                <p className="staticReportPanelDescription">
+                  A receita aqui e atribuida as campanhas. Ela nao representa a receita total da loja.
+                </p>
                 <div className="staticReportTableWrap">
                   <table>
                     <thead>
@@ -287,34 +550,18 @@ export default function Reports({
                 </div>
               </article>
 
-              <article className="staticReportPanel">
+              <article className="staticReportPanel staticReportPanelWide">
                 <header>
-                  <h2>Top produtos</h2>
-                  <span>{brl(report.commerce.revenue)} em vendas</span>
+                  <h2>Oportunidades Comerciais</h2>
+                  <span>Acoes combinadas</span>
                 </header>
-                <div className="staticReportTableWrap">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Produto</th>
-                        <th>Qtd.</th>
-                        <th>Receita</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {report.commerce.top_products.length ? (
-                        report.commerce.top_products.map((product) => (
-                          <tr key={product.product_id || product.variant_id || product.title}>
-                            <td>{product.title}</td>
-                            <td>{number(product.quantity)}</td>
-                            <td>{brl(product.revenue)}</td>
-                          </tr>
-                        ))
-                      ) : (
-                        <EmptyRow colSpan={3} label="Sem produtos vendidos no periodo." />
-                      )}
-                    </tbody>
-                  </table>
+                <div className="staticReportStatusGrid">
+                  {COMMERCIAL_OPPORTUNITIES.map((item) => (
+                    <div key={item.name} className="staticReportStatusItem">
+                      <strong>{item.name}</strong>
+                      <span>{item.status}</span>
+                    </div>
+                  ))}
                 </div>
               </article>
 
@@ -358,9 +605,30 @@ export default function Reports({
               </article>
             </div>
 
+            <article className="staticReportPanel staticReportPanelWide">
+              <header>
+                <h2>Evolucao do Projeto</h2>
+                <span>Entregas e proximas acoes</span>
+              </header>
+              <div className="staticReportProjectGrid">
+                <div>
+                  <h3>Implementado neste periodo</h3>
+                  <ul>
+                    {PROJECT_IMPLEMENTED.map((item) => <li key={item}>{item}</li>)}
+                  </ul>
+                </div>
+                <div>
+                  <h3>Proximas entregas</h3>
+                  <ul>
+                    {PROJECT_NEXT_STEPS.map((item) => <li key={item}>{item}</li>)}
+                  </ul>
+                </div>
+              </div>
+            </article>
+
             <article className="staticReportInsights">
               <header>
-                <h2>Insights</h2>
+                <h2>Leitura Consultiva</h2>
                 <span>Resumo executivo</span>
               </header>
               <ul>
