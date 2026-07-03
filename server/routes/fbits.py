@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 from fastapi import APIRouter, Header, HTTPException, Query
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from api_support import (
     _log_endpoint_call,
@@ -33,6 +33,13 @@ NO_CACHE_HEADERS = {
     "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
     "Pragma": "no-cache",
 }
+
+
+def _no_cache_json(payload):
+    if isinstance(payload, Response):
+        payload.headers.update(NO_CACHE_HEADERS)
+        return payload
+    return JSONResponse(content=payload, headers=NO_CACHE_HEADERS)
 
 
 def _safe_float(value) -> float:
@@ -192,7 +199,7 @@ async def fbits_dashboard(
         days=days,
         operation="summary",
     )
-    return JSONResponse(content=payload, headers=NO_CACHE_HEADERS)
+    return _no_cache_json(payload)
 
 
 @router.get("/api/fbits/health")
@@ -211,7 +218,7 @@ async def fbits_health(
     today = date.today().isoformat()
     payload = await check_fbits_health(start=start or today, end=end or start or today)
     payload["client_id"] = cid
-    return JSONResponse(content=payload, headers=NO_CACHE_HEADERS)
+    return _no_cache_json(payload)
 
 
 @router.get("/api/fbits/debug-data")

@@ -9,6 +9,7 @@ import useDashboardFbits from "../hooks/dashboard/useDashboardFbits";
 import FbitsSalesPanel from "../components/dashboard/FbitsSalesPanel";
 import { backfillFbitsOrders, syncFbits, syncGa4 } from "../app/api";
 import { usePeriod } from "../app/PeriodContext";
+import { clearDashboardCache } from "../hooks/dashboard/cache";
 import { buildMonthRange, formatSelectedPeriodLabel, getSelectedPeriodRange } from "../app/periodRange";
 import type {
   Ga4CampaignRow,
@@ -518,7 +519,7 @@ export default function GoogleAnalytics({
   onOpenReports,
   isAuthenticated = false,
 }: Props) {
-  const { period, periodDays, setCurrentMonthPeriod, setMonthPeriod, setPresetPeriod } = usePeriod();
+  const { period, periodDays, setCurrentMonthPeriod, setMonthPeriod, setPeriod, setPresetPeriod } = usePeriod();
   const [preset, setPreset] = useState<PeriodPreset>(() =>
     resolveInitialPreset(period.start, period.end, periodDays)
   );
@@ -527,6 +528,7 @@ export default function GoogleAnalytics({
   const [selectedYear, setSelectedYear] = useState(initialDate.year);
   const [selectedGa4ClientId, setSelectedGa4ClientId] = useState(resolveInitialGa4ClientId);
   const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
   const [channelFilter, setChannelFilter] = useState("");
   const [sourceMediumFilter, setSourceMediumFilter] = useState("");
   const [campaignFilter, setCampaignFilter] = useState("");
@@ -780,8 +782,10 @@ export default function GoogleAnalytics({
 
   const handleRefresh = useCallback(async () => {
     setRefreshError(null);
+    setRefreshMessage(null);
     setSyncing(true);
     try {
+      clearDashboardCache();
       const syncResults = await Promise.allSettled([
         syncGa4({
           start: selectedRange.start,
@@ -804,12 +808,18 @@ export default function GoogleAnalytics({
         setRefreshError("Falha parcial ao atualizar. Mantendo a última leitura disponível.");
       }
       await Promise.allSettled([reloadGa4({ force: true }), reloadFbits({ force: true })]);
+      setRefreshMessage("Dados atualizados com sucesso.");
     } catch (error: unknown) {
       setRefreshError(toErrorMessage(error));
     } finally {
       setSyncing(false);
     }
   }, [activeGa4ClientId, periodDays, reloadFbits, reloadGa4, selectedRange.end, selectedRange.start]);
+
+  const handleOpenReport = useCallback(() => {
+    setPeriod(selectedRange);
+    onOpenReports?.();
+  }, [onOpenReports, selectedRange, setPeriod]);
 
   const handleFbitsBackfill = useCallback(async () => {
     const syncRange = resolveFbitsSyncRange(fbitsSyncPreset, selectedRange);
@@ -923,6 +933,25 @@ export default function GoogleAnalytics({
               <span className="googleHeroTimestamp">
                 Última leitura: {lastSyncedLabel || "aguardando sincronização"}
               </span>
+            </div>
+            <div className="googleHeroActions" aria-live="polite">
+              <button
+                className="googleHeroActionButton isPrimary"
+                type="button"
+                onClick={handleRefresh}
+                disabled={syncing || loadingGa4 || loadingFbits}
+              >
+                {syncing ? "Atualizando..." : "Atualizar dados"}
+              </button>
+              <button
+                className="googleHeroActionButton"
+                type="button"
+                onClick={handleOpenReport}
+                disabled={!onOpenReports}
+              >
+                Gerar relatório
+              </button>
+              {refreshMessage ? <span className="googleHeroActionFeedback">{refreshMessage}</span> : null}
             </div>
             <div className="googleQuickNav">
               <a className="googleQuickNavLink" href="#google-sales">

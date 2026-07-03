@@ -23,6 +23,14 @@ function fmtCurrency(value: number) {
   });
 }
 
+function fmtCurrencyCompact(value: number) {
+  return Number(value || 0).toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    maximumFractionDigits: 0,
+  });
+}
+
 function shortDate(value: string | null | undefined) {
   const raw = String(value || "").trim();
   if (!raw) return "-";
@@ -191,7 +199,7 @@ export default function FbitsSalesPanel({ data, orders, loading, error, variant 
         <div className="fbitsSalesGrid">
           <div className="fbitsSalesCard isPrimary">
             <span>Receita oficial</span>
-            <strong>{fmtCurrency(summary.receita_oficial)}</strong>
+            <strong>{fmtCurrencyCompact(summary.receita_oficial)}</strong>
             <small>Lista oficial da FBits no período</small>
           </div>
           <div className="fbitsSalesCard">
@@ -201,7 +209,7 @@ export default function FbitsSalesPanel({ data, orders, loading, error, variant 
           </div>
           <div className="fbitsSalesCard">
             <span>Ticket médio</span>
-            <strong>{fmtCurrency(summary.ticket_medio)}</strong>
+            <strong>{fmtCurrencyCompact(summary.ticket_medio)}</strong>
             <small>Receita oficial por pedido</small>
           </div>
           {variant === "full" && hasCustomerMetric ? (

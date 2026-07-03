@@ -96,3 +96,23 @@ export function clearDashboardCacheByPrefix(prefix: string): void {
     // no-op
   }
 }
+
+export function clearDashboardCache(): void {
+  DASH_CACHE.clear();
+  try {
+    for (let index = window.sessionStorage.length - 1; index >= 0; index -= 1) {
+      const key = window.sessionStorage.key(index);
+      if (!key) continue;
+      if (
+        key.startsWith(DASH_CACHE_PREFIX) ||
+        key.toLowerCase().includes("dashboard") ||
+        key.toLowerCase().includes("report") ||
+        key.toLowerCase().includes("relatorio")
+      ) {
+        window.sessionStorage.removeItem(key);
+      }
+    }
+  } catch {
+    // no-op
+  }
+}
