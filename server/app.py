@@ -52,15 +52,18 @@ TTL_STORIES_SECONDS = 90
 TTL_NOTES_SECONDS = 90
 TTL_MEDIA_MONTHLY_SECONDS = 180
 
-default_allow_origin = ",".join(
-    [
-        "http://localhost:5173",
-        "http://localhost:5174",
-        "https://mugometricscuravino.onrender.com",
-    ]
-)
-raw = (os.getenv("ALLOW_ORIGIN") or default_allow_origin).strip()
-allow_origins = [o.strip() for o in raw.split(",") if o.strip()]
+required_allow_origins = [
+    "https://mugometricscuravino-1.onrender.com",
+    "https://mugometricscuravino.onrender.com",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+compat_allow_origins = [
+    "http://localhost:5174",
+]
+raw = (os.getenv("CORS_ORIGINS") or os.getenv("ALLOW_ORIGIN") or "").strip()
+configured_allow_origins = [o.strip() for o in raw.split(",") if o.strip()]
+allow_origins = list(dict.fromkeys([*configured_allow_origins, *required_allow_origins, *compat_allow_origins]))
 allow_all_origins = "*" in allow_origins
 
 app.add_middleware(

@@ -10,8 +10,8 @@ from .fbits_reporting import get_official_commerce_summary
 from .ig_supabase import sb_select
 
 
-def _safe_str(value: Any) -> str:
-    return str(value or "").strip()
+def _safe_str(value: Any, fallback: str = "") -> str:
+    return str(value or fallback or "").strip()
 
 
 def _safe_float(value: Any) -> float:

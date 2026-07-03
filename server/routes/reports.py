@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Header, Query
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from fastapi.responses import Response
 
@@ -28,7 +29,7 @@ async def api_static_report(
 ):
     cid = await resolve_client_id(_pick_client_id(client_id, x_client_id), authorization)
     report = await build_static_report(client_id=cid, start=start, end=end)
-    return JSONResponse(content=report, headers=NO_CACHE_HEADERS)
+    return JSONResponse(content=jsonable_encoder(report), headers=NO_CACHE_HEADERS)
 
 
 async def _resolve_client_name(client_id: str) -> str:
